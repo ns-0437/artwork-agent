@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/ns-0437/artwork-agent/services/api-go/internal/agent"
@@ -72,6 +73,8 @@ func (w *Worker) tick(ctx context.Context) error {
 		w.runInspect(ctx, job)
 	case "repair":
 		w.runRepair(ctx, job)
+	case "agent_decide":
+		w.runAgentDecision(ctx, job)
 	default:
 		w.fail(ctx, job, "unknown job type: "+job.JobType)
 	}
@@ -162,31 +165,31 @@ func (w *Worker) runInspect(ctx context.Context, job *store.Job) {
 	}
 	artworkStatus, proofStatus := decideArtworkStatus(findings, intent)
 
-	// The asset's dimensions, the job's result, every finding, and the
-	// order's state advance all commit together in one transaction, gated on
-	// this worker still holding a valid lease and the case not having moved
-	// on since this job was bound to job.InputCaseVersion. See
-	// store.CompleteInspection.
+	// Whether to enqueue a follow-up agent_decide job is decided HERE and
+	// passed into the SAME transaction as the commit below - a separate
+	// "commit, then enqueue" step (the previous design) left a durability
+	// gap: a crash between the two committed the inspection with no queued
+	// work to resume it. RESOLVED needs no further action; with no provider
+	// configured, there's nothing useful an agent_decide job could do either.
+	enqueueAgentDecision := w.Agent != nil && artworkStatus != "RESOLVED"
+
+	// The asset's dimensions, the job's result, every finding, the order's
+	// state advance, and (if applicable) the follow-up agent_decide job all
+	// commit together in one transaction, gated on this worker still holding
+	// a valid lease and the case not having moved on since this job was
+	// bound to job.InputCaseVersion. See store.CompleteInspection.
 	ok, err := w.Store.CompleteInspection(ctx, job.ID, w.ID, *job.InputAssetID, job.InputCaseVersion, store.InspectionResult{
 		WidthPx:  inspected.WidthPx,
 		HeightPx: inspected.HeightPx,
 		Mode:     inspected.Mode,
 		Format:   inspected.Format,
-	}, findings, artworkStatus, proofStatus)
+	}, findings, artworkStatus, proofStatus, enqueueAgentDecision)
 	if err != nil {
 		log.Printf("job %s: failed to commit inspection result: %v", job.ID, err)
 		return
 	}
 	if !ok {
 		w.fail(ctx, job, "lease lost or case_version changed during inspection - result discarded")
-		return
-	}
-
-	// The agent loop runs AFTER the deterministic commit, using its result
-	// as input - it never runs instead of it, and never touches findings or
-	// status itself (CLAUDE.md point 1). RESOLVED needs no further action.
-	if artworkStatus != "RESOLVED" {
-		w.runAgentDecision(ctx, job.OrderID)
 	}
 }
 
@@ -376,32 +379,60 @@ func (w *Worker) completeRejectedRepair(ctx context.Context, job *store.Job, ass
 const trimOnlyClarificationQuestion = "Is your uploaded artwork trim-only - meaning it does NOT yet include the printer's required bleed margin? Please answer yes or no."
 
 // runAgentDecision is step 3 of the brief's bounded loop: "Ask one targeted
-// clarification, repair an eligible case, or escalate." It runs once, after
-// the deterministic checks have already committed a non-RESOLVED status -
-// it reads that committed result as input and never recomputes or
-// second-guesses it (CLAUDE.md point 1). With no provider configured, this
-// is a no-op: the case simply stays at whatever decideArtworkStatus already
-// set (BLOCKED/NEEDS_REVIEW), same as Day 2/3 behavior.
-func (w *Worker) runAgentDecision(ctx context.Context, orderID string) {
+// clarification, repair an eligible case, or escalate." It processes ONE
+// agent_decide job, itself a durable, resumable unit of work created
+// atomically alongside the inspection it decides about (CompleteInspection).
+// It reads that inspection's findings via job.AgentSourceJobID - never "the
+// latest finding per check across this order's entire history" - and never
+// recomputes or second-guesses them (CLAUDE.md point 1).
+//
+// Every terminal path (success, budget exhaustion, a failed decision, or a
+// decision Go's own validation rejects) ends in EXACTLY ONE call to
+// CompleteAgentDecision, which commits the job's result and applies the
+// decision atomically - there is no path where this function returns having
+// left the job SUCCEEDED/FAILED with no corresponding state change, or vice
+// versa.
+func (w *Worker) runAgentDecision(ctx context.Context, job *store.Job) {
+	escalate := func(reason string) {
+		log.Printf("job %s: escalating: %s", job.ID, reason)
+		ok, err := w.Store.CompleteAgentDecision(ctx, job.ID, w.ID, job.InputCaseVersion, store.AgentDecisionOutcome{
+			Action: agent.ActionEscalate,
+			Reason: reason,
+		})
+		if err != nil {
+			log.Printf("job %s: failed to commit escalation: %v", job.ID, err)
+			return
+		}
+		if !ok {
+			w.fail(ctx, job, "lease lost or case_version changed while escalating ("+reason+")")
+		}
+	}
+
 	if w.Agent == nil {
+		escalate("no agent provider configured")
+		return
+	}
+	if job.AgentSourceJobID == nil {
+		escalate("agent_decide job has no source job to read findings from")
 		return
 	}
 
-	order, err := w.Store.GetOrder(ctx, orderID)
+	order, err := w.Store.GetOrder(ctx, job.OrderID)
 	if err != nil || order == nil {
-		log.Printf("order %s: failed to load order for agent decision: %v", orderID, err)
+		// Can't even confirm the order exists - don't guess at escalating.
+		// Leave the job leased; if this is transient, the lease will expire
+		// and another attempt (this worker or another) will retry it.
+		log.Printf("job %s: failed to load order: %v", job.ID, err)
 		return
 	}
 
-	if order.AgentToolCallsUsed >= maxAgentToolCalls {
-		log.Printf("order %s: agent tool-call budget exhausted (%d used) - escalating", orderID, order.AgentToolCallsUsed)
-		w.escalateBudgetExhausted(ctx, order)
-		return
-	}
-
-	findings, err := w.Store.ListFindings(ctx, orderID)
+	findings, err := w.Store.ListFindingsForJob(ctx, *job.AgentSourceJobID)
 	if err != nil {
-		log.Printf("order %s: failed to load findings for agent decision: %v", orderID, err)
+		log.Printf("job %s: failed to load findings: %v", job.ID, err)
+		return
+	}
+	if len(findings) == 0 {
+		escalate("no findings recorded for the source inspection")
 		return
 	}
 
@@ -411,105 +442,153 @@ func (w *Worker) runAgentDecision(ctx context.Context, orderID string) {
 	}
 
 	input := agent.DecisionInput{
-		OrderID:        orderID,
+		OrderID:        job.OrderID,
 		ProductType:    order.ProductType,
 		DeclaredWidth:  order.DeclaredWidth,
 		DeclaredHeight: order.DeclaredHeight,
 		DeclaredUnit:   order.DeclaredUnit,
 		Intent:         intent,
-		Findings:       toFindingSummaries(latestFindingsByCheck(findings)),
+		Findings:       toFindingSummaries(findings),
 	}
 
-	var decision agent.Decision
-	var decideErr error
-	retries := 0
-	for {
-		decision, decideErr = w.Agent.Decide(ctx, input)
-		if decideErr == nil {
-			break
-		}
-		if retries >= maxAgentTransientRetries {
-			break
-		}
-		retries++
-		if err := w.Store.RecordAgentRetry(ctx, orderID, toolEventDetail(map[string]interface{}{"error": decideErr.Error()})); err != nil {
-			log.Printf("order %s: failed to record agent retry: %v", orderID, err)
-		}
-	}
-
-	callDetail := map[string]interface{}{"action": decision.Action}
-	if decision.Question != "" {
-		callDetail["model_suggested_question"] = decision.Question
-	}
-	if decideErr != nil {
-		callDetail["error"] = decideErr.Error()
-	}
-	if err := w.Store.RecordAgentToolCall(ctx, orderID, toolEventDetail(callDetail)); err != nil {
-		log.Printf("order %s: failed to record agent tool_event: %v", orderID, err)
-	}
-
-	if decideErr != nil {
-		log.Printf("order %s: agent decision failed after %d retries: %v - escalating", orderID, retries, decideErr)
-		w.escalateBudgetExhausted(ctx, order)
+	// Reserve BEFORE calling the provider, not after - an unreserved call
+	// can't be accounted for. If reservation itself errors, don't guess
+	// that the provider is safe to call anyway.
+	reserved, err := w.Store.ReserveAgentToolCall(ctx, job.OrderID, maxAgentToolCalls)
+	if err != nil {
+		log.Printf("job %s: failed to reserve agent tool-call budget: %v", job.ID, err)
 		return
 	}
+	if !reserved {
+		escalate("agent tool-call budget exhausted")
+		return
+	}
+
+	decision, decideErr := w.Agent.Decide(ctx, input)
+	w.logAgentAttempt(ctx, job.OrderID, decision, decideErr)
+
+	// Retries are checked against the PERSISTED total (ReserveAgentRetry),
+	// not a local counter that would reset every time this function runs -
+	// otherwise the true retry count across multiple tool calls could
+	// exceed the cap. Only a transient error is retried at all; permanent
+	// errors (bad auth, a malformed request) fail fast instead of wasting
+	// retry budget on something guaranteed to fail again.
+	for decideErr != nil && agent.IsTransient(decideErr) {
+		retryReserved, rErr := w.Store.ReserveAgentRetry(ctx, job.OrderID, maxAgentTransientRetries)
+		if rErr != nil {
+			log.Printf("job %s: failed to reserve agent retry budget: %v", job.ID, rErr)
+			break
+		}
+		if !retryReserved {
+			break
+		}
+		decision, decideErr = w.Agent.Decide(ctx, input)
+		w.logAgentAttempt(ctx, job.OrderID, decision, decideErr)
+	}
+
+	if decideErr != nil {
+		escalate("agent decision failed: " + decideErr.Error())
+		return
+	}
+
+	outcome := store.AgentDecisionOutcome{Action: decision.Action}
 
 	switch decision.Action {
 	case agent.ActionAskClarification:
-		// The PERSISTED question is always this fixed, deliberately-polarized
-		// text - never the model's free-form suggestion (logged above for
-		// audit only). v1 supports exactly one clarification type
-		// (trim-only confirmation), and answerClarification's interpretYesNo
-		// maps "yes" straight to artwork_is_trim_only=true: if the model's
-		// own phrasing were used instead, an equally sensible question with
-		// the OPPOSITE polarity (e.g. "does it already include bleed?")
-		// would invert that mapping and silently confirm the wrong thing.
-		// Fixing the wording removes that entire class of risk rather than
-		// trying to parse or normalize whatever the model asked.
-		question := trimOnlyClarificationQuestion
-		ok, err := w.Store.CreateClarificationAndAwait(ctx, orderID, question, order.CaseVersion)
-		if err != nil {
-			log.Printf("order %s: failed to persist clarification: %v", orderID, err)
+		// Only act on this when the ACTUAL findings show the one blocker
+		// this system can clarify (trim not confirmed) - a model choosing
+		// ask_clarification for anything else (e.g. low resolution) has no
+		// question that would help, so escalate instead of asking a
+		// nonsensical one. This check is independent of whatever the model
+		// said - Go verifies it against the real findings, not the model's
+		// stated reasoning.
+		if !hasUnconfirmedTrimFinding(findings) {
+			escalate("model chose ask_clarification but no unconfirmed-trim finding is present in these findings")
 			return
 		}
-		if !ok {
-			log.Printf("order %s: case_version changed before clarification could be persisted - dropping this decision", orderID)
-		}
+		// The PERSISTED question is always this fixed, deliberately-polarized
+		// text - never the model's free-form suggestion (logged above for
+		// audit only). v1 supports exactly one clarification type, and
+		// answerClarification's interpretYesNo maps "yes" straight to
+		// artwork_is_trim_only=true: if the model's own phrasing were used
+		// instead, an equally sensible question with the OPPOSITE polarity
+		// (e.g. "does it already include bleed?") would invert that mapping
+		// and silently confirm the wrong thing.
+		outcome.ClarificationQuestion = trimOnlyClarificationQuestion
 
 	case agent.ActionRequestRepair:
-		w.triggerAutoRepair(ctx, order)
+		if !hasConfirmedInsufficientBleedFinding(findings) {
+			escalate("model chose request_repair but no confirmed-trim insufficient-bleed finding is present in these findings")
+			return
+		}
+		if order.CurrentAssetID == nil {
+			escalate("model chose request_repair but there is no current asset")
+			return
+		}
+		asset, err := w.Store.LatestAssetByKind(ctx, job.OrderID, "original")
+		if err != nil || asset == nil {
+			escalate("model chose request_repair but no original asset was found")
+			return
+		}
+		outcome.RepairAssetID = asset.ID
+		outcome.RepairIdempotencyKey = "agent-auto-" + job.OrderID + "-" + asset.ID
 
 	case agent.ActionEscalate:
-		// decideArtworkStatus already left this NEEDS_REVIEW or BLOCKED;
-		// escalate means "no further automated action", not a status change.
+		outcome.Reason = "model chose to escalate"
+
+	default:
+		escalate("model returned an unrecognized action: " + decision.Action)
+		return
+	}
+
+	ok, err := w.Store.CompleteAgentDecision(ctx, job.ID, w.ID, job.InputCaseVersion, outcome)
+	if err != nil {
+		log.Printf("job %s: failed to commit agent decision: %v", job.ID, err)
+		return
+	}
+	if !ok {
+		w.fail(ctx, job, "lease lost or case_version changed while applying agent decision")
 	}
 }
 
-// triggerAutoRepair enqueues the same repair job requestRepair would, with a
-// system-generated idempotency key - runRepair's own precondition check
-// (intent=full_bleed AND artwork_is_trim_only=true) is the real safety net
-// here: if the agent's judgment is wrong, the job is safely REJECTED with a
-// specific reason rather than corrupting anything (see worker.runRepair).
-func (w *Worker) triggerAutoRepair(ctx context.Context, order *store.Order) {
-	if order.CurrentAssetID == nil {
-		log.Printf("order %s: agent chose request_repair but there is no current asset", order.ID)
-		return
+func (w *Worker) logAgentAttempt(ctx context.Context, orderID string, decision agent.Decision, decideErr error) {
+	detail := map[string]interface{}{}
+	if decideErr != nil {
+		detail["error"] = decideErr.Error()
+		detail["transient"] = agent.IsTransient(decideErr)
+	} else {
+		detail["action"] = decision.Action
+		if decision.Question != "" {
+			detail["model_suggested_question"] = decision.Question
+		}
 	}
-	asset, err := w.Store.LatestAssetByKind(ctx, order.ID, "original")
-	if err != nil || asset == nil {
-		log.Printf("order %s: agent chose request_repair but no original asset was found: %v", order.ID, err)
-		return
-	}
-	key := "agent-auto-" + order.ID + "-" + asset.ID
-	if _, err := w.Store.CreateJob(ctx, order.ID, "repair", asset.ID, order.CaseVersion, &key); err != nil {
-		log.Printf("order %s: failed to enqueue agent-triggered repair: %v", order.ID, err)
+	if err := w.Store.LogAgentToolEvent(ctx, orderID, "tool_call", toolEventDetail(detail)); err != nil {
+		log.Printf("order %s: failed to log agent tool_event: %v", orderID, err)
 	}
 }
 
-func (w *Worker) escalateBudgetExhausted(ctx context.Context, order *store.Order) {
-	if _, err := w.Store.EscalateToNeedsReview(ctx, order.ID, order.CaseVersion); err != nil {
-		log.Printf("order %s: failed to escalate after exhausted agent budget: %v", order.ID, err)
+// hasUnconfirmedTrimFinding reports whether the given findings actually
+// contain the one blocker ask_clarification exists for - it doesn't matter
+// what the model said, only what the deterministic findings say.
+func hasUnconfirmedTrimFinding(findings []store.Finding) bool {
+	for _, f := range findings {
+		if f.Result == "NEEDS_INPUT" && strings.Contains(f.Evidence, "trim rectangle not confirmed") {
+			return true
+		}
 	}
+	return false
+}
+
+// hasConfirmedInsufficientBleedFinding reports whether the given findings
+// actually contain a confirmed-trim, insufficient-margin bleed result -
+// the one blocker request_repair exists for.
+func hasConfirmedInsufficientBleedFinding(findings []store.Finding) bool {
+	for _, f := range findings {
+		if f.CheckName == "bleed" && f.Result == "NEEDS_REVIEW" && strings.Contains(f.Evidence, "available_bleed_in") {
+			return true
+		}
+	}
+	return false
 }
 
 func toolEventDetail(v map[string]interface{}) string {
@@ -518,24 +597,6 @@ func toolEventDetail(v map[string]interface{}) string {
 		return `{}`
 	}
 	return string(b)
-}
-
-// latestFindingsByCheck keeps only the most recent finding per check_name -
-// findings are append-only across every inspection this order has ever had,
-// but the agent's decision must be based on the CURRENT state, not history.
-func latestFindingsByCheck(findings []store.Finding) []store.Finding {
-	latest := map[string]store.Finding{}
-	for _, f := range findings {
-		existing, ok := latest[f.CheckName]
-		if !ok || f.CreatedAt.After(existing.CreatedAt) {
-			latest[f.CheckName] = f
-		}
-	}
-	out := make([]store.Finding, 0, len(latest))
-	for _, f := range latest {
-		out = append(out, f)
-	}
-	return out
 }
 
 func toFindingSummaries(findings []store.Finding) []agent.FindingSummary {

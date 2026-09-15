@@ -52,6 +52,7 @@ type Job struct {
 	InputAssetID     *string
 	InputCaseVersion int
 	IdempotencyKey   *string // set for repair jobs; nil for inspect jobs
+	AgentSourceJobID *string // set for agent_decide jobs: the inspect job whose findings this decision must act on
 	Result           *string // JSON-encoded result (e.g. inspection dimensions/mode/format), nil until completion
 	CreatedAt        time.Time
 	UpdatedAt        time.Time

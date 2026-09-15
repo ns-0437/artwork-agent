@@ -62,7 +62,6 @@ export default function CaseView() {
   const [order, setOrder] = useState<Order | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [status, setStatus] = useState<string>('')
-  const [clarificationAnswer, setClarificationAnswer] = useState('')
   const pollRef = useRef<number | null>(null)
 
   async function createOrder() {
@@ -130,18 +129,24 @@ export default function CaseView() {
     }
   }
 
-  async function answerClarification(clarificationId: string) {
-    if (!order || !clarificationAnswer.trim()) return
+  // The two buttons below send exactly "yes" or "no" - fixed literals, never
+  // free text - because this is the only clarification v1 supports (trim
+  // confirmation) and interpretYesNo on the server maps those two words
+  // directly to artwork_is_trim_only. A free-text field risks a customer
+  // typing something ambiguous ("I think so", "maybe") that a first-word
+  // parser could misread; explicit Yes/No controls remove that risk
+  // entirely rather than trying to parse around it.
+  async function answerClarification(clarificationId: string, answer: 'yes' | 'no') {
+    if (!order) return
     setStatus('Submitting answer...')
     try {
       const data = await gql<{ answerClarification: Order }>(
         `mutation($id: ID!, $answer: String!, $caseVersion: Int!) {
           answerClarification(clarificationId: $id, answer: $answer, caseVersion: $caseVersion) { ${ORDER_FIELDS} }
         }`,
-        { id: clarificationId, answer: clarificationAnswer, caseVersion: order.caseVersion },
+        { id: clarificationId, answer, caseVersion: order.caseVersion },
       )
       setOrder(data.answerClarification)
-      setClarificationAnswer('')
       setStatus('Answer submitted - resolution resumed automatically.')
       startPolling(order.id)
     } catch (e) {
@@ -269,15 +274,10 @@ export default function CaseView() {
             <section style={{ border: '2px solid #d97706', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
               <h2>The agent has a question</h2>
               <p>{pending.question}</p>
-              <input
-                value={clarificationAnswer}
-                onChange={(e) => setClarificationAnswer(e.target.value)}
-                placeholder="yes or no"
-                style={{ marginRight: '0.5rem' }}
-              />
-              <button onClick={() => answerClarification(pending.id)} disabled={!clarificationAnswer.trim()}>
-                Submit answer
+              <button onClick={() => answerClarification(pending.id, 'yes')} style={{ marginRight: '0.5rem' }}>
+                Yes
               </button>
+              <button onClick={() => answerClarification(pending.id, 'no')}>No</button>
             </section>
           )
         })()}

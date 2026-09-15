@@ -274,6 +274,12 @@ func (r *Resolver) resolveAnswerClarification(p graphql.ResolveParams) (interfac
 		return nil, fmt.Errorf("clarification %s: case_version %d is stale, or it was already answered - refresh and retry", clarificationID, expectedCaseVersion)
 	}
 
+	// "A validated reply enqueues continuation": AnswerClarificationAndConfirmTrim
+	// already enqueued the follow-up inspect job atomically, in the same
+	// transaction as answering - there is nothing further to do here. A
+	// separate CreateJob call after the fact would reopen exactly the
+	// durability gap that fix closed (a crash between the two leaving the
+	// case reopened with no queued work).
 	o, err := r.Store.GetOrder(p.Context, clarification.OrderID)
 	if err != nil {
 		return nil, err
@@ -281,18 +287,6 @@ func (r *Resolver) resolveAnswerClarification(p graphql.ResolveParams) (interfac
 	if o == nil {
 		return nil, fmt.Errorf("order %s not found", clarification.OrderID)
 	}
-
-	// "A validated reply enqueues continuation": automatically start a fresh
-	// inspection against the current asset, now that trim is confirmed -
-	// the customer doesn't have to separately call startResolution.
-	if o.CurrentAssetID != nil {
-		if asset, err := r.Store.GetAsset(p.Context, *o.CurrentAssetID); err == nil && asset != nil {
-			if _, err := r.Store.CreateJob(p.Context, clarification.OrderID, "inspect", asset.ID, o.CaseVersion, nil); err != nil {
-				return nil, err
-			}
-		}
-	}
-
 	return orderToMap(o), nil
 }
 

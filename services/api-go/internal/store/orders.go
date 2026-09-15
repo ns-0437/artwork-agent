@@ -74,66 +74,49 @@ func (s *Store) UpdateOrderStateIfVersion(ctx context.Context, orderID string, e
 	return tag.RowsAffected() > 0, nil
 }
 
-// RecordAgentToolCall bumps agent_tool_calls_used and logs a tool_events row
-// for one decision-call attempt (successful or not) - the persisted half of
-// the bounded loop's 5-tool-call cap (CLAUDE.md point/brief: "cap each
-// execution segment at five tool calls"). detailJSON is a JSON-encoded blob
-// (action taken, or the error) for the audit trail.
-func (s *Store) RecordAgentToolCall(ctx context.Context, orderID string, detailJSON string) error {
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE orders SET agent_tool_calls_used = agent_tool_calls_used + 1, updated_at = now() WHERE id = $1
-	`, orderID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO tool_events (order_id, event_type, detail) VALUES ($1, 'tool_call', $2::jsonb)
-	`, orderID, detailJSON); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-// RecordAgentRetry bumps agent_retries_used and logs a tool_events row - the
-// persisted half of the bounded loop's 2-transient-retry cap.
-func (s *Store) RecordAgentRetry(ctx context.Context, orderID string, detailJSON string) error {
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE orders SET agent_retries_used = agent_retries_used + 1, updated_at = now() WHERE id = $1
-	`, orderID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO tool_events (order_id, event_type, detail) VALUES ($1, 'retry', $2::jsonb)
-	`, orderID, detailJSON); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-// EscalateToNeedsReview is used when the agent loop itself can't produce a
-// decision (budget exhausted, or every retry failed) - the case still needs
-// SOME terminal state, and NEEDS_REVIEW (a human should look at it) is the
-// honest one, not a silent retry-forever or a guessed resolution.
-func (s *Store) EscalateToNeedsReview(ctx context.Context, orderID string, expectedCaseVersion int) (bool, error) {
+// ReserveAgentToolCall atomically reserves ONE unit of the persisted
+// tool-call budget BEFORE the provider is ever called: the UPDATE only
+// succeeds if agent_tool_calls_used is still below maxCalls, in a single
+// statement (not read-then-write), so two concurrent attempts can never
+// both reserve past the cap. Returns reserved=false (no error) if the
+// budget is already exhausted - the caller must NOT call the provider in
+// that case. If this call itself errors (e.g. a DB problem), the caller
+// must also not call the provider - an unreserved call can't be accounted
+// for.
+func (s *Store) ReserveAgentToolCall(ctx context.Context, orderID string, maxCalls int) (bool, error) {
 	tag, err := s.Pool.Exec(ctx, `
-		UPDATE orders SET artwork_status = 'NEEDS_REVIEW', case_version = case_version + 1, updated_at = now()
-		WHERE id = $1 AND case_version = $2
-	`, orderID, expectedCaseVersion)
+		UPDATE orders SET agent_tool_calls_used = agent_tool_calls_used + 1, updated_at = now()
+		WHERE id = $1 AND agent_tool_calls_used < $2
+	`, orderID, maxCalls)
 	if err != nil {
 		return false, err
 	}
 	return tag.RowsAffected() > 0, nil
+}
+
+// ReserveAgentRetry is the same pattern for the persisted retry budget -
+// checked against the TOTAL retries this case has ever used (across every
+// tool call it has made), not a per-call local counter that would reset on
+// every new decision attempt and let the true total exceed the cap.
+func (s *Store) ReserveAgentRetry(ctx context.Context, orderID string, maxRetries int) (bool, error) {
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE orders SET agent_retries_used = agent_retries_used + 1, updated_at = now()
+		WHERE id = $1 AND agent_retries_used < $2
+	`, orderID, maxRetries)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// LogAgentToolEvent is audit-trail only - it does NOT gate or count toward
+// any budget (see ReserveAgentToolCall/ReserveAgentRetry for that). A
+// logging failure is deliberately non-fatal to the caller's decision flow.
+func (s *Store) LogAgentToolEvent(ctx context.Context, orderID, eventType, detailJSON string) error {
+	_, err := s.Pool.Exec(ctx, `
+		INSERT INTO tool_events (order_id, event_type, detail) VALUES ($1, $2, $3::jsonb)
+	`, orderID, eventType, detailJSON)
+	return err
 }
 
 // ConfirmTrim records whether the customer confirms the current upload is

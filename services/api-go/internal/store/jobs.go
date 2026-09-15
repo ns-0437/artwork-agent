@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const jobColumns = `id, order_id, job_type, status, worker_id, lease_expires_at, attempt_count, last_error, input_asset_id, input_case_version, idempotency_key, result::text, created_at, updated_at`
+const jobColumns = `id, order_id, job_type, status, worker_id, lease_expires_at, attempt_count, last_error, input_asset_id, input_case_version, idempotency_key, agent_source_job_id, result::text, created_at, updated_at`
 
 // CreateJob enqueues a job bound to a specific input asset and the order's
 // case_version at creation time - the worker must act on exactly this asset,
@@ -79,7 +79,7 @@ func (s *Store) ListJobsForOrder(ctx context.Context, orderID string) ([]Job, er
 	for rows.Next() {
 		var j Job
 		if err := rows.Scan(&j.ID, &j.OrderID, &j.JobType, &j.Status, &j.WorkerID, &j.LeaseExpiresAt,
-			&j.AttemptCount, &j.LastError, &j.InputAssetID, &j.InputCaseVersion, &j.IdempotencyKey, &j.Result, &j.CreatedAt, &j.UpdatedAt); err != nil {
+			&j.AttemptCount, &j.LastError, &j.InputAssetID, &j.InputCaseVersion, &j.IdempotencyKey, &j.AgentSourceJobID, &j.Result, &j.CreatedAt, &j.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, j)
@@ -154,17 +154,25 @@ type FindingInput struct {
 }
 
 // CompleteInspection commits the asset's decoded dimensions, the job's
-// result and SUCCEEDED status, the findings from each check, and the
-// order's state advance in ONE transaction. This is deliberately not
+// result and SUCCEEDED status, the findings from each check, the order's
+// state advance, and - when enqueueAgentDecision is true - a follow-up
+// agent_decide job, ALL in ONE transaction. This is deliberately not
 // several separate calls: a SUCCEEDED status must never be reachable
-// without its result and findings actually being stored, and the order must
+// without its result and findings actually being stored, the order must
 // never move forward on behalf of a worker that has lost its lease or whose
-// view of the case (expectedCaseVersion) is stale.
+// view of the case (expectedCaseVersion) is stale, and (the reason this
+// enqueues its own follow-up job rather than leaving that to the caller) a
+// crash between "inspection committed" and "agent decision invoked" must
+// never leave the case stuck with no queued work to resume it.
+//
+// The follow-up job is bound via agent_source_job_id to jobID itself (THIS
+// inspection), so whatever reads it later acts on exactly these findings -
+// never "the latest finding per check across the order's entire history".
 //
 // Returns ok=false (with a nil error) if either guard fails - the whole
-// transaction rolls back, including the asset update and any findings
-// inserts. The caller should treat that as "this attempt is void" (see
-// worker.runInspect), not retry the same write.
+// transaction rolls back, including the asset update, findings inserts, and
+// any follow-up job insert. The caller should treat that as "this attempt
+// is void" (see worker.runInspect), not retry the same write.
 func (s *Store) CompleteInspection(
 	ctx context.Context,
 	jobID, workerID, assetID string,
@@ -172,6 +180,7 @@ func (s *Store) CompleteInspection(
 	result InspectionResult,
 	findings []FindingInput,
 	artworkStatus, proofStatus string,
+	enqueueAgentDecision bool,
 ) (bool, error) {
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
@@ -226,6 +235,16 @@ func (s *Store) CompleteInspection(
 		return false, nil
 	}
 
+	if enqueueAgentDecision {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO jobs (order_id, job_type, input_asset_id, input_case_version, agent_source_job_id)
+			VALUES ($1, 'agent_decide', $2, $3, $4)
+			ON CONFLICT (order_id, job_type) WHERE status IN ('QUEUED', 'RUNNING') DO NOTHING
+		`, orderID, assetID, expectedCaseVersion+1, jobID); err != nil {
+			return false, err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return false, err
 	}
@@ -243,7 +262,7 @@ func orderIDForJob(ctx context.Context, tx pgx.Tx, jobID string) (string, error)
 func scanJob(row pgx.Row) (*Job, error) {
 	var j Job
 	err := row.Scan(&j.ID, &j.OrderID, &j.JobType, &j.Status, &j.WorkerID, &j.LeaseExpiresAt,
-		&j.AttemptCount, &j.LastError, &j.InputAssetID, &j.InputCaseVersion, &j.IdempotencyKey, &j.Result, &j.CreatedAt, &j.UpdatedAt)
+		&j.AttemptCount, &j.LastError, &j.InputAssetID, &j.InputCaseVersion, &j.IdempotencyKey, &j.AgentSourceJobID, &j.Result, &j.CreatedAt, &j.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}

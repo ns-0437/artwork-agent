@@ -49,49 +49,17 @@ func (s *Store) ListClarificationsForOrder(ctx context.Context, orderID string) 
 	return out, rows.Err()
 }
 
-// CreateClarificationAndAwait persists a targeted question and moves the
-// case to AWAITING_CLARIFICATION, atomically - "Persist a clarification and
-// exit" (the brief's loop step 4). Zero rows affected on the order update
-// means the caller's case_version was stale; the clarification insert is
-// rolled back along with it (all-or-nothing).
-func (s *Store) CreateClarificationAndAwait(ctx context.Context, orderID, question string, expectedCaseVersion int) (bool, error) {
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO clarifications (order_id, question) VALUES ($1, $2)
-	`, orderID, question); err != nil {
-		return false, err
-	}
-
-	tag, err := tx.Exec(ctx, `
-		UPDATE orders SET artwork_status = 'AWAITING_CLARIFICATION', case_version = case_version + 1, updated_at = now()
-		WHERE id = $1 AND case_version = $2
-	`, orderID, expectedCaseVersion)
-	if err != nil {
-		return false, err
-	}
-	if tag.RowsAffected() == 0 {
-		return false, nil
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// AnswerClarificationAndConfirmTrim records the customer's reply and applies
-// it - v1's only supported clarification outcome is a trim-only
-// confirmation (see CLAUDE.md point 12) - atomically: the clarification is
-// marked answered, and the SAME state reopen ConfirmTrim performs (bump
-// case_version, reset artwork_status/proof_status) happens in the same
-// transaction, gated on expectedCaseVersion. "A validated reply enqueues
-// continuation" - the caller enqueues the follow-up inspect job separately,
-// once this commit succeeds.
+// AnswerClarificationAndConfirmTrim records the customer's reply, applies it
+// - v1's only supported clarification outcome is a trim-only confirmation
+// (see CLAUDE.md point 12) - and enqueues the follow-up inspect job, ALL
+// atomically: the clarification is marked answered, the same state reopen
+// ConfirmTrim performs (bump case_version, reset artwork_status/
+// proof_status) happens, and (this is the fix - previously this job was
+// enqueued as a SEPARATE call after this transaction committed, so a crash
+// in between left the case reopened with no queued work to resume it) a
+// new 'inspect' job is inserted bound to the order's current asset and the
+// NEW case_version, all in one transaction. "A validated reply enqueues
+// continuation" now means exactly that - one commit, not two.
 func (s *Store) AnswerClarificationAndConfirmTrim(
 	ctx context.Context,
 	clarificationID, rawAnswer, orderID string,
@@ -129,6 +97,20 @@ func (s *Store) AnswerClarificationAndConfirmTrim(
 	}
 	if orderTag.RowsAffected() == 0 {
 		return false, nil
+	}
+
+	var currentAssetID *string
+	if err := tx.QueryRow(ctx, `SELECT current_asset_id FROM orders WHERE id = $1`, orderID).Scan(&currentAssetID); err != nil {
+		return false, err
+	}
+	if currentAssetID != nil {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO jobs (order_id, job_type, input_asset_id, input_case_version)
+			VALUES ($1, 'inspect', $2, $3)
+			ON CONFLICT (order_id, job_type) WHERE status IN ('QUEUED', 'RUNNING') DO NOTHING
+		`, orderID, *currentAssetID, expectedCaseVersion+1); err != nil {
+			return false, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
