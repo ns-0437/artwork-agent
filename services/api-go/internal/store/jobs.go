@@ -139,22 +139,36 @@ type InspectionResult struct {
 	Format   string `json:"format"`
 }
 
+// FindingInput is one check's result, ready to persist. Evidence is a JSON
+// text blob (already serialized by the caller, which received it as JSON
+// from services/image-python) rather than a Go struct, since api-go does not
+// need to interpret it - it just stores and later returns what the rules
+// engine reported.
+type FindingInput struct {
+	CheckName   string
+	Result      string
+	Evidence    string
+	RuleVersion string
+}
+
 // CompleteInspection commits the asset's decoded dimensions, the job's
-// result and SUCCEEDED status, and the order's state advance in ONE
-// transaction. This is deliberately not three separate calls: a SUCCEEDED
-// status must never be reachable without the result actually being stored,
-// and the order must never move forward on behalf of a worker that has lost
-// its lease or whose view of the case (expectedCaseVersion) is stale.
+// result and SUCCEEDED status, the findings from each check, and the
+// order's state advance in ONE transaction. This is deliberately not
+// several separate calls: a SUCCEEDED status must never be reachable
+// without its result and findings actually being stored, and the order must
+// never move forward on behalf of a worker that has lost its lease or whose
+// view of the case (expectedCaseVersion) is stale.
 //
 // Returns ok=false (with a nil error) if either guard fails - the whole
-// transaction rolls back, including the asset update. The caller should
-// treat that as "this attempt is void" (see worker.runInspect), not retry
-// the same write.
+// transaction rolls back, including the asset update and any findings
+// inserts. The caller should treat that as "this attempt is void" (see
+// worker.runInspect), not retry the same write.
 func (s *Store) CompleteInspection(
 	ctx context.Context,
 	jobID, workerID, assetID string,
 	expectedCaseVersion int,
 	result InspectionResult,
+	findings []FindingInput,
 	artworkStatus, proofStatus string,
 ) (bool, error) {
 	resultJSON, err := json.Marshal(result)
@@ -185,10 +199,24 @@ func (s *Store) CompleteInspection(
 		return false, nil
 	}
 
+	orderID, err := orderIDForJob(ctx, tx, jobID)
+	if err != nil {
+		return false, err
+	}
+
+	for _, f := range findings {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO findings (order_id, job_id, check_name, result, evidence, rule_version)
+			VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+		`, orderID, jobID, f.CheckName, f.Result, f.Evidence, f.RuleVersion); err != nil {
+			return false, err
+		}
+	}
+
 	orderTag, err := tx.Exec(ctx, `
 		UPDATE orders SET artwork_status = $1, proof_status = $2, case_version = case_version + 1, updated_at = now()
-		WHERE id = (SELECT order_id FROM jobs WHERE id = $3) AND case_version = $4
-	`, artworkStatus, proofStatus, jobID, expectedCaseVersion)
+		WHERE id = $3 AND case_version = $4
+	`, artworkStatus, proofStatus, orderID, expectedCaseVersion)
 	if err != nil {
 		return false, err
 	}
@@ -200,6 +228,14 @@ func (s *Store) CompleteInspection(
 		return false, err
 	}
 	return true, nil
+}
+
+func orderIDForJob(ctx context.Context, tx pgx.Tx, jobID string) (string, error) {
+	var orderID string
+	if err := tx.QueryRow(ctx, `SELECT order_id FROM jobs WHERE id = $1`, jobID).Scan(&orderID); err != nil {
+		return "", err
+	}
+	return orderID, nil
 }
 
 func scanJob(row pgx.Row) (*Job, error) {

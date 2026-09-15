@@ -1,8 +1,6 @@
 // Package worker implements the one real execution path: claim a queued job,
 // fetch the order's artwork from storage, call the Python image service, and
-// persist the result. Day 2 replaces runInspect's body with real findings and
-// the short-circuit-to-RESOLVED logic; the claim/dispatch/complete plumbing
-// here does not change.
+// persist the result and findings.
 package worker
 
 import (
@@ -71,6 +69,16 @@ func (w *Worker) runInspect(ctx context.Context, job *store.Job) {
 		return
 	}
 
+	order, err := w.Store.GetOrder(ctx, job.OrderID)
+	if err != nil {
+		w.fail(ctx, job, "failed to look up order: "+err.Error())
+		return
+	}
+	if order == nil {
+		w.fail(ctx, job, "order no longer exists")
+		return
+	}
+
 	asset, err := w.Store.GetAsset(ctx, *job.InputAssetID)
 	if err != nil {
 		w.fail(ctx, job, "failed to look up bound input asset: "+err.Error())
@@ -87,31 +95,80 @@ func (w *Worker) runInspect(ctx context.Context, job *store.Job) {
 		return
 	}
 
-	inspected, err := w.PyImage.Inspect(data, asset.StorageKey, asset.ContentType)
+	intent := "border"
+	if order.Intent != nil {
+		intent = *order.Intent
+	}
+
+	inspected, err := w.PyImage.Inspect(data, asset.StorageKey, asset.ContentType, pyclient.InspectInput{
+		DeclaredWidth:  order.DeclaredWidth,
+		DeclaredHeight: order.DeclaredHeight,
+		DeclaredUnit:   order.DeclaredUnit,
+		Intent:         intent,
+	})
 	if err != nil {
 		w.fail(ctx, job, "image service inspect failed: "+err.Error())
 		return
 	}
-	log.Printf("job %s inspected order %s: %dx%d %s (%s)", job.ID, job.OrderID, inspected.WidthPx, inspected.HeightPx, inspected.Mode, inspected.Format)
+	log.Printf("job %s inspected order %s: %dx%d %s (%s), %d check(s)",
+		job.ID, job.OrderID, inspected.WidthPx, inspected.HeightPx, inspected.Mode, inspected.Format, len(inspected.Checks))
 
-	// No checks are implemented yet (Day 2), so nothing could resolve the
-	// case - it stays BLOCKED. The asset's dimensions, the job's result, and
-	// the order's state advance all commit together in one transaction,
-	// gated on this worker still holding a valid lease and the case not
-	// having moved on since this job was bound to job.InputCaseVersion. See
+	findings := make([]store.FindingInput, 0, len(inspected.Checks))
+	for _, c := range inspected.Checks {
+		findings = append(findings, store.FindingInput{
+			CheckName:   c.CheckName,
+			Result:      c.Result,
+			Evidence:    string(c.Evidence),
+			RuleVersion: c.RuleVersion,
+		})
+	}
+	artworkStatus, proofStatus := decideArtworkStatus(findings)
+
+	// The asset's dimensions, the job's result, every finding, and the
+	// order's state advance all commit together in one transaction, gated on
+	// this worker still holding a valid lease and the case not having moved
+	// on since this job was bound to job.InputCaseVersion. See
 	// store.CompleteInspection.
 	ok, err := w.Store.CompleteInspection(ctx, job.ID, w.ID, *job.InputAssetID, job.InputCaseVersion, store.InspectionResult{
 		WidthPx:  inspected.WidthPx,
 		HeightPx: inspected.HeightPx,
 		Mode:     inspected.Mode,
 		Format:   inspected.Format,
-	}, "BLOCKED", "NOT_PREPARED")
+	}, findings, artworkStatus, proofStatus)
 	if err != nil {
 		log.Printf("job %s: failed to commit inspection result: %v", job.ID, err)
 		return
 	}
 	if !ok {
 		w.fail(ctx, job, "lease lost or case_version changed during inspection - result discarded")
+	}
+}
+
+// decideArtworkStatus aggregates check RESULTS into a workflow state - it
+// does not recompute or second-guess any measurement (see CLAUDE.md point
+// 1). A WARNING never blocks; NEEDS_REVIEW always does; NEEDS_INPUT blocks
+// for now since the clarification round-trip that would resolve it isn't
+// wired up until Day 4 - transitioning to AWAITING_CLARIFICATION without a
+// way to answer it would be a dead end equivalent to staying BLOCKED, so
+// Day 2 just stays BLOCKED.
+func decideArtworkStatus(findings []store.FindingInput) (artworkStatus, proofStatus string) {
+	hasNeedsReview := false
+	hasNeedsInput := false
+	for _, f := range findings {
+		switch f.Result {
+		case "NEEDS_REVIEW":
+			hasNeedsReview = true
+		case "NEEDS_INPUT":
+			hasNeedsInput = true
+		}
+	}
+	switch {
+	case hasNeedsReview:
+		return "NEEDS_REVIEW", "NOT_PREPARED"
+	case hasNeedsInput:
+		return "BLOCKED", "NOT_PREPARED"
+	default:
+		return "RESOLVED", "AWAITING_CUSTOMER_APPROVAL"
 	}
 }
 

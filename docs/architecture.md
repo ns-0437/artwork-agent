@@ -32,6 +32,16 @@ web/ (TypeScript, React) --GraphQL--> services/api-go (Go)
 
 Day 2 replaces step 5's body with real findings persistence and the short-circuit-to-RESOLVED logic; steps 1-4 and the claim/dispatch/complete plumbing in step 5 do not change.
 
+## Day 2: deterministic checks
+
+`/inspect` now runs three checks (`services/image-python/app/checks/`) against the decoded image and the order's declared width/height/unit/intent, returning PASS/WARNING/NEEDS_INPUT/NEEDS_REVIEW per check plus evidence and a `rule_version`. The worker persists every finding, the job's result, and the order's state advance in one transaction (`store.CompleteInspection`), then `worker.decideArtworkStatus` aggregates the findings:
+
+- Any `NEEDS_REVIEW` → `artwork_status = NEEDS_REVIEW`.
+- Else any `NEEDS_INPUT` → stays `BLOCKED` (not `AWAITING_CLARIFICATION` - that transition needs Day 4's clarification round-trip to mean anything).
+- Else (every check `PASS`/`WARNING`) → short-circuits to `RESOLVED`, `proof_status = AWAITING_CUSTOMER_APPROVAL`.
+
+**Trim rectangle policy (v1, documented limitation, not a bug):** there is no trim-selection input yet. The resolution check treats the whole decoded image as the trim region (matches the brief's own worked example). The bleed check only runs for `intent='full_bleed'` and always returns `NEEDS_INPUT` for now, since guessing a trim boundary from image content is explicitly disallowed by the brief ("return NEEDS_INPUT rather than guessing from edge pixels"). Day 3's repair sets trim coordinates explicitly when it builds the new canvas, which is what makes a real bleed measurement possible - see CLAUDE.md point 12.
+
 ## Known gaps (tracked, not yet fixed)
 
 - **No authentication or ownership checks.** `ownerId` on an order is a free-text field the client supplies - nothing verifies the caller actually owns the order they're mutating. Dev ports are bound to `127.0.0.1` specifically because of this gap (see CLAUDE.md point 26); this needs closing before any deployment beyond a local demo.

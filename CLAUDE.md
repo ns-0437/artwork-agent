@@ -9,16 +9,29 @@ Spec of record: `docs/build-brief.pdf` (the six-day build brief). When this file
 ## Code structure
 
 ```
-web/                    TypeScript UI — case view, upload, clarification Q&A. Polls case status.
-services/api-go/        Go GraphQL API + worker. Owns workflow, validation, state transitions, the agent loop.
-services/image-python/  Python/Pillow. Owns ONLY deterministic image inspection + the one repair. No workflow logic.
-db/migrations/          Postgres schema (orders, jobs, assets, findings, clarifications, repairs, tool_events).
-evals/                  Fixture generation + evaluation harness (dev/held-out split, baseline vs agent).
-infra/                  Docker Compose (local) + Cloud Run/GCP deploy config.
-docs/                   Architecture, evaluation results, case study, demo notes.
+web/                              TypeScript UI — case view, upload. Polls case status.
+services/api-go/
+  cmd/server/                     GraphQL API + upload endpoint entrypoint
+  cmd/worker/                     Poll/claim/dispatch entrypoint (same module, separate binary)
+  internal/graph/                 Hand-written graphql-go schema, resolvers, HTTP handler
+  internal/store/                 Postgres access - orders, jobs (claim/complete), assets, findings
+  internal/storage/               Storage interface + LocalDisk (dev) implementation
+  internal/upload/                Signed local upload ticket issuance + redemption
+  internal/worker/                Poll loop, dispatch by job_type, decideArtworkStatus
+  internal/pyclient/              HTTP client for services/image-python
+services/image-python/
+  app/checks/                     Pure functions: resolution.py, color.py, bleed.py, units.py
+  app/main.py                     /inspect: decode, validate, orchestrate checks
+  tests/                          pytest unit tests for app/checks/
+db/migrations/                    Postgres schema (orders, jobs, assets, findings, clarifications, repairs, tool_events)
+evals/
+  fixtures/dev/, fixtures/held-out/  Seed images, split by design before variants
+  fixtures/manifest.json          Per-fixture declared size/intent/notes
+  scripts/generate_fixtures.py    Regenerates the seed set
+  scripts/smoke_test.sh           Manual end-to-end check across all seed fixtures (not the Day 5 eval harness)
+infra/                            docker-compose.yml (local) + Cloud Run/GCP deploy config (Day 5)
+docs/                             Architecture, evaluation results, case study, demo notes
 ```
-
-(This section is a skeleton as of Day 0 — update it as real files land under each directory.)
 
 ## Points to remember
 
@@ -33,7 +46,7 @@ docs/                   Architecture, evaluation results, case study, demo notes
 9. **Result vocabulary per check is exactly:** PASS / WARNING / NEEDS_INPUT / NEEDS_REVIEW. `REPAIRED` is a repair-only status, set post-verification. Don't invent alternate strings — evals and the UI key off these exact values.
 10. **CMYK inputs are inspect-only in v1** — no repair path for them. Only RGB/PNG-style uniform-background extension is implemented.
 11. **Repair eligibility is a conservative demo rule, not a manufacturing-suitability proof.** Reject gradients, transparency, textured edges, and foreground objects touching the boundary — don't loosen this to get more fixtures to pass.
-12. **Bleed check requires full-bleed intent AND a confirmed trim rectangle.** If either is missing, return NEEDS_INPUT — never infer trim placement by guessing from edge pixels.
+12. **Bleed check requires full-bleed intent AND a confirmed trim rectangle.** If either is missing, return NEEDS_INPUT — never infer trim placement by guessing from edge pixels. **v1 has no trim-selection input**, so `check_bleed` (`services/image-python/app/checks/bleed.py`) always returns NEEDS_INPUT for `intent='full_bleed'` and nothing at all for `intent='border'` (the check doesn't run, not a fail). This isn't a gap to quietly patch - it's the honest deterministic answer until Day 3's repair sets `trim_x_px`/`trim_width_px` etc. explicitly (it knows exactly where it placed the original content), at which point a real measurement becomes possible. The resolution check, by contrast, treats the whole decoded image as the trim region (matches the brief's own 600×600px/3×3in/200 PPI example) and is unaffected by this limitation.
 13. **Out of scope, don't add:** Stores/Notify/Reply/Ship integration, SVG/PDF parsing, generative upscaling, automatic color conversion, print certification, payments, production release, factory integration, multi-agent fleet, arbitrary cut contours.
 14. **Provider adapter is single and replaceable** (Claude first, through Day 4). A Grok comparison is optional Day-5 scope only, gated on core evaluation gates already passing — never let it displace reliability work.
 15. **Untrusted input handling:** treat all customer text/files as untrusted — enforce file signature checks, 10MB upload cap, 25-megapixel decoded limit, sandboxed decoding, and timeouts in `services/image-python`'s entry points.
@@ -49,6 +62,7 @@ docs/                   Architecture, evaluation results, case study, demo notes
 25. **Enqueue mutations are idempotent by construction, not by a client-supplied key.** At most one QUEUED/RUNNING job of a given type may exist per order (a partial unique index on `jobs(order_id, job_type) WHERE status IN ('QUEUED','RUNNING')`) — a repeated `startResolution` call while one is already in flight returns the existing job instead of enqueueing a duplicate. `requestRepair` (Day 3) additionally needs its own client-supplied idempotency key per point 19, since a repair is a distinct user-initiated action rather than "ensure resolution is running."
 26. **Dev ports are bound to `127.0.0.1`, not `0.0.0.0`**, in `infra/docker-compose.yml` (`"127.0.0.1:PORT:PORT"`) — there is no authentication or ownership check on these endpoints yet, so exposing them to the LAN would let any other device on the network hit them. Don't drop the `127.0.0.1:` prefix when adding a new port mapping.
 27. **Python validates format and declared size before the expensive decode.** `Image.open()` only reads the header; check `image.format` against an explicit allowlist (PNG/JPEG) and `width*height` against the 25-megapixel cap using `image.size` *before* calling `image.load()`, which is what actually decodes pixel data. Deciding after `.load()` means an oversized or disallowed file was already fully decoded into memory before being rejected.
+28. **Day 2's `decideArtworkStatus` (in `internal/worker`) keeps a NEEDS_INPUT case at `BLOCKED`, not `AWAITING_CLARIFICATION`.** The clarification round-trip (`answerClarification`) isn't wired up until Day 4 - transitioning to `AWAITING_CLARIFICATION` without any way to answer it would be a dead end functionally identical to staying `BLOCKED`, just with an extra state to explain. Day 4 changes this transition when it actually implements the round-trip; don't add it earlier just because the enum value exists.
 
 ## Working rules
 
