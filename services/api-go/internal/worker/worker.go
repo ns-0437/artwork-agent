@@ -104,12 +104,31 @@ func (w *Worker) runInspect(ctx context.Context, job *store.Job) {
 		intent = *order.Intent
 	}
 
+	// If this job's asset IS the order's current asset and the order
+	// already has known trim coordinates (set by a prior successful
+	// repair), pass them explicitly - the same as the repair's own
+	// recheck does. Without this, re-inspecting a repaired canvas would
+	// fall back to the artwork_is_trim_only-based inference, which treats
+	// the WHOLE canvas as the trim and would measure zero bleed margin,
+	// reintroducing the blocker the repair just cleared. Only apply this
+	// when the asset actually matches - a job bound to a stale (pre-repair)
+	// asset must not borrow trim coordinates that describe a different one.
+	var trimWidthPx, trimHeightPx *int
+	if order.CurrentAssetID != nil && *order.CurrentAssetID == asset.ID && order.TrimWidthPx != nil && order.TrimHeightPx != nil {
+		tw := int(*order.TrimWidthPx)
+		th := int(*order.TrimHeightPx)
+		trimWidthPx = &tw
+		trimHeightPx = &th
+	}
+
 	inspected, err := w.PyImage.Inspect(data, asset.StorageKey, asset.ContentType, pyclient.InspectInput{
 		DeclaredWidth:     order.DeclaredWidth,
 		DeclaredHeight:    order.DeclaredHeight,
 		DeclaredUnit:      order.DeclaredUnit,
 		Intent:            intent,
 		ArtworkIsTrimOnly: order.ArtworkIsTrimOnly,
+		TrimWidthPx:       trimWidthPx,
+		TrimHeightPx:      trimHeightPx,
 	})
 	if err != nil {
 		w.fail(ctx, job, "image service inspect failed: "+err.Error())

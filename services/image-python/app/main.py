@@ -22,7 +22,8 @@ from app.checks.color import check_color
 from app.checks.trim import resolve_trim
 from app.checks.units import to_inches
 from app.repair.eligibility import check_eligibility
-from app.repair.extend_background import extend_background
+from app.repair.extend_background import CanvasTooLargeError, extend_background
+from app.repair.geometry import validate_aspect_ratio, validate_declared_size
 from app.repair.preview import render_preview
 from app.repair.verify import verify_repair
 
@@ -87,6 +88,9 @@ async def inspect(
 
     declared_width_in = to_inches(declared_width, declared_unit)
     declared_height_in = to_inches(declared_height, declared_unit)
+    size_error = validate_declared_size(declared_width_in, declared_height_in)
+    if size_error:
+        raise HTTPException(status_code=400, detail=size_error)
 
     trim = resolve_trim(intent, artwork_is_trim_only, width, height, trim_width_px, trim_height_px)
 
@@ -144,9 +148,9 @@ async def repair(
 
     On success, the repaired canvas and preview are returned as base64 PNG
     - never written by this service, so it never needs to know about
-    storage. On failure (ineligible, or verification somehow fails), no
-    image data is returned - the original is left untouched by construction
-    since this endpoint never mutates its input.
+    storage. On failure (ineligible, mismatched geometry, or verification
+    somehow fails), no image data is returned - the original is left
+    untouched by construction since this endpoint never mutates its input.
     """
     data = await file.read()
     image = _decode_upload(data)
@@ -158,39 +162,71 @@ async def repair(
 
     declared_width_in = to_inches(declared_width, declared_unit)
     declared_height_in = to_inches(declared_height, declared_unit)
+
+    size_error = validate_declared_size(declared_width_in, declared_height_in)
+    if size_error:
+        return {"repaired": False, "reason": size_error}
+
+    aspect_error = validate_aspect_ratio(width, height, declared_width_in, declared_height_in)
+    if aspect_error:
+        return {"repaired": False, "reason": aspect_error}
+
     effective_ppi = min(width / declared_width_in, height / declared_height_in)
 
-    extended = extend_background(image, eligibility["edge_color"], effective_ppi)
+    try:
+        extended = extend_background(image, eligibility["mode"], eligibility["edge_color"], effective_ppi)
+    except CanvasTooLargeError as exc:
+        return {"repaired": False, "reason": str(exc)}
     canvas = extended["image"]
 
+    # Encode to PNG - preserving the source's ICC profile when it has one,
+    # so a repaired RGB image keeps its color profile rather than silently
+    # losing it on save - THEN decode that actual output back and verify
+    # against it, not the in-memory canvas. This is what makes verification
+    # trustworthy: it catches anything the save/reload round trip itself
+    # could have changed, not just what extend_background did in memory.
+    icc_profile = image.info.get("icc_profile")
+    canvas_buf = io.BytesIO()
+    if icc_profile:
+        canvas.save(canvas_buf, format="PNG", icc_profile=icc_profile)
+    else:
+        canvas.save(canvas_buf, format="PNG")
+    canvas_buf.seek(0)
+    saved_canvas = Image.open(canvas_buf)
+    saved_canvas.load()
+
     verified = verify_repair(
-        image, canvas, extended["trim_x_px"], extended["trim_y_px"], extended["trim_width_px"], extended["trim_height_px"]
+        image, saved_canvas, extended["trim_x_px"], extended["trim_y_px"], extended["trim_width_px"], extended["trim_height_px"]
     )
     if not verified:
-        # Should not happen given extend_background pastes without
-        # resampling - but never trust an unverified repair. Discard the
-        # candidate rather than return something that might not actually
-        # preserve the original content exactly.
-        return {"repaired": False, "reason": "pixel-equality verification failed after extension - repair discarded"}
+        # Never trust an unverified repair - discard the candidate rather
+        # than return something that might not actually preserve the
+        # original content exactly. Checking the SAVED file (not just the
+        # in-memory canvas) is the point: an encode/decode change must not
+        # hide under a check that only ever looked at memory.
+        return {"repaired": False, "reason": "pixel-equality verification failed against the saved output - repair discarded"}
 
-    preview = render_preview(canvas, extended["trim_x_px"], extended["trim_y_px"], extended["trim_width_px"], extended["trim_height_px"])
-
-    canvas_buf = io.BytesIO()
-    canvas.save(canvas_buf, format="PNG")
+    preview = render_preview(
+        saved_canvas, extended["trim_x_px"], extended["trim_y_px"], extended["trim_width_px"], extended["trim_height_px"]
+    )
     preview_buf = io.BytesIO()
     preview.save(preview_buf, format="PNG")
+
+    edge_color = eligibility["edge_color"]
+    edge_color_out = list(edge_color) if isinstance(edge_color, tuple) else edge_color
 
     return {
         "repaired": True,
         "image_base64": base64.b64encode(canvas_buf.getvalue()).decode("ascii"),
         "preview_base64": base64.b64encode(preview_buf.getvalue()).decode("ascii"),
-        "width_px": canvas.width,
-        "height_px": canvas.height,
+        "width_px": saved_canvas.width,
+        "height_px": saved_canvas.height,
         "trim_x_px": extended["trim_x_px"],
         "trim_y_px": extended["trim_y_px"],
         "trim_width_px": extended["trim_width_px"],
         "trim_height_px": extended["trim_height_px"],
         "margin_px": extended["margin_px"],
         "effective_ppi": round(effective_ppi, 2),
-        "edge_color": list(eligibility["edge_color"]),
+        "edge_color": edge_color_out,
+        "mode": eligibility["mode"],
     }

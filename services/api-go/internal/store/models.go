@@ -13,6 +13,7 @@ type Order struct {
 	ArtworkVersion    int
 	Intent            *string
 	ArtworkIsTrimOnly *bool
+	CurrentAssetID    *string
 	TrimXPx           *float64
 	TrimYPx           *float64
 	TrimWidthPx       *float64

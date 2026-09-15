@@ -81,10 +81,11 @@ func (s *Store) RecordArtworkUpload(ctx context.Context, in CreateAssetInput) (*
 				artwork_status = 'BLOCKED',
 				proof_status = 'NOT_PREPARED',
 				artwork_is_trim_only = NULL,
+				current_asset_id = $3,
 				trim_x_px = NULL, trim_y_px = NULL, trim_width_px = NULL, trim_height_px = NULL,
 				updated_at = now()
 			WHERE id = $1
-		`, in.OrderID, isReplacement); err != nil {
+		`, in.OrderID, isReplacement, asset.ID); err != nil {
 			return nil, err
 		}
 	}

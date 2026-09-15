@@ -196,13 +196,18 @@ func (s *Store) CompleteRepair(
 			}
 		}
 
+		// current_asset_id moves to the repaired canvas - a later
+		// startResolution (or future proof generation) must act on this,
+		// never fall back to the pristine original, or it could
+		// reintroduce a blocker (e.g. missing bleed) this repair cleared.
 		orderTag, err := tx.Exec(ctx, `
 			UPDATE orders SET
 				artwork_status = $1, proof_status = $2, case_version = case_version + 1,
-				trim_x_px = $3, trim_y_px = $4, trim_width_px = $5, trim_height_px = $6,
+				current_asset_id = $3,
+				trim_x_px = $4, trim_y_px = $5, trim_width_px = $6, trim_height_px = $7,
 				updated_at = now()
-			WHERE id = $7 AND case_version = $8
-		`, artworkStatus, proofStatus, outcome.TrimXPx, outcome.TrimYPx, outcome.TrimWidthPx, outcome.TrimHeightPx,
+			WHERE id = $8 AND case_version = $9
+		`, artworkStatus, proofStatus, derivedAssetID, outcome.TrimXPx, outcome.TrimYPx, outcome.TrimWidthPx, outcome.TrimHeightPx,
 			orderID, expectedCaseVersion)
 		if err != nil {
 			return false, err

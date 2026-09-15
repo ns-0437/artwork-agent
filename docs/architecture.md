@@ -60,6 +60,15 @@ An ineligible or precondition-failing attempt still commits (a REJECTED `repairs
 
 **v1 simplification:** only one repair attempt may be in flight per order regardless of idempotency key (see CLAUDE.md point 25).
 
+## Post-Day-3 correctness fixes
+
+Four gaps found on review, fixed before Day 4:
+
+1. **Current asset tracking.** `orders.current_asset_id` (migration `0004`) now names "the artwork right now" explicitly, set atomically by `RecordArtworkUpload` and `CompleteRepair`. `resolveStartResolution` and `worker.runInspect` use it (plus the order's known trim coordinates, when the job's asset matches) instead of always re-fetching the latest *original* - otherwise a re-inspection after a successful repair would silently fall back to the pristine (missing-bleed) upload.
+2. **Idempotency order.** `requestRepair` now checks the idempotency key BEFORE `case_version` freshness (`internal/graph/repair_idempotency.go:decideRepairRequestAction`, unit-tested standalone). An exact replay of a completed request succeeds even though `case_version` moved on as a result of that same completion; the same key resubmitted with a *different* `case_version` is rejected explicitly, not silently served the old result.
+3. **Color fidelity + verification depth.** `/repair` rejects CMYK outright (never converts it), preserves the source's actual mode (RGB or grayscale) and ICC profile through the whole pipeline, and verifies pixel-equality against the PNG it actually saved and reopened - not the in-memory canvas - so a save/reload artifact can't hide.
+4. **Geometry validation.** `/inspect` and `/repair` reject non-positive declared dimensions (also enforced by a DB `CHECK` constraint); `/repair` additionally rejects an artwork/declared aspect-ratio mismatch outright (a single min-axis PPI can otherwise falsely satisfy bleed) and caps the expanded canvas size before allocating it.
+
 ## Known gaps (tracked, not yet fixed)
 
 - **No authentication or ownership checks.** `ownerId` on an order is a free-text field the client supplies - nothing verifies the caller actually owns the order they're mutating. Dev ports are bound to `127.0.0.1` specifically because of this gap (see CLAUDE.md point 26); this needs closing before any deployment beyond a local demo.

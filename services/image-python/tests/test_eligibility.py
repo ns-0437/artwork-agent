@@ -8,6 +8,30 @@ def test_uniform_solid_image_is_eligible():
     result = check_eligibility(img)
     assert result["eligible"] is True
     assert result["edge_color"] == (30, 120, 200)
+    assert result["mode"] == "RGB"
+
+
+def test_cmyk_is_rejected_not_converted():
+    img = Image.new("CMYK", (100, 100), (10, 20, 30, 0))
+    result = check_eligibility(img)
+    assert result["eligible"] is False
+    assert "CMYK" in result["reason"]
+    assert result["mode"] is None
+
+
+def test_grayscale_is_eligible_and_preserves_l_mode():
+    img = Image.new("L", (100, 100), 128)
+    result = check_eligibility(img)
+    assert result["eligible"] is True
+    assert result["mode"] == "L"
+    assert result["edge_color"] == 128
+
+
+def test_palette_mode_is_unsupported():
+    img = Image.new("RGB", (100, 100), (30, 120, 200)).convert("P")
+    result = check_eligibility(img)
+    assert result["eligible"] is False
+    assert "unsupported color mode" in result["reason"]
 
 
 def test_transparent_image_is_ineligible():

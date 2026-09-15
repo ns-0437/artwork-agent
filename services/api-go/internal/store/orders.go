@@ -7,7 +7,7 @@ import (
 )
 
 const orderColumns = `id, owner_id, product_type, declared_width, declared_height, declared_unit,
-	customer_request, artwork_version, intent, artwork_is_trim_only, trim_x_px, trim_y_px, trim_width_px, trim_height_px,
+	customer_request, artwork_version, intent, artwork_is_trim_only, current_asset_id, trim_x_px, trim_y_px, trim_width_px, trim_height_px,
 	case_version, artwork_status, proof_status, production_status, created_at, updated_at`
 
 type CreateOrderInput struct {
@@ -43,7 +43,7 @@ func (s *Store) GetOrder(ctx context.Context, id string) (*Order, error) {
 func scanOrder(row pgx.Row) (*Order, error) {
 	var o Order
 	err := row.Scan(&o.ID, &o.OwnerID, &o.ProductType, &o.DeclaredWidth, &o.DeclaredHeight, &o.DeclaredUnit,
-		&o.CustomerRequest, &o.ArtworkVersion, &o.Intent, &o.ArtworkIsTrimOnly, &o.TrimXPx, &o.TrimYPx, &o.TrimWidthPx, &o.TrimHeightPx,
+		&o.CustomerRequest, &o.ArtworkVersion, &o.Intent, &o.ArtworkIsTrimOnly, &o.CurrentAssetID, &o.TrimXPx, &o.TrimYPx, &o.TrimWidthPx, &o.TrimHeightPx,
 		&o.CaseVersion, &o.ArtworkStatus, &o.ProofStatus, &o.ProductionStatus, &o.CreatedAt, &o.UpdatedAt)
 	if err != nil {
 		return nil, err
