@@ -8,24 +8,26 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const jobColumns = `id, order_id, job_type, status, worker_id, lease_expires_at, attempt_count, last_error, input_asset_id, input_case_version, result::text, created_at, updated_at`
+const jobColumns = `id, order_id, job_type, status, worker_id, lease_expires_at, attempt_count, last_error, input_asset_id, input_case_version, idempotency_key, result::text, created_at, updated_at`
 
 // CreateJob enqueues a job bound to a specific input asset and the order's
 // case_version at creation time - the worker must act on exactly this asset,
 // never "whatever is latest" when it happens to run, so a later upload can't
-// silently change what an in-flight job inspects.
+// silently change what an in-flight job inspects. idempotencyKey is nil for
+// inspect jobs; repair jobs carry the client-supplied key so the eventual
+// CompleteRepair call can tie the repairs row back to it.
 //
 // At most one QUEUED/RUNNING job of a given type may exist per order
-// (enforced by a partial unique index), so a repeated startResolution call
-// while one is already in flight is a no-op: this returns (nil, nil) and the
-// caller should look up the active job with GetActiveJob instead of treating
-// it as failure.
-func (s *Store) CreateJob(ctx context.Context, orderID, jobType, inputAssetID string, inputCaseVersion int) (*Job, error) {
+// (enforced by a partial unique index), so a repeated startResolution or
+// requestRepair call while one is already in flight is a no-op: this
+// returns (nil, nil) and the caller should look up the active job with
+// GetActiveJob instead of treating it as failure.
+func (s *Store) CreateJob(ctx context.Context, orderID, jobType, inputAssetID string, inputCaseVersion int, idempotencyKey *string) (*Job, error) {
 	row := s.Pool.QueryRow(ctx, `
-		INSERT INTO jobs (order_id, job_type, input_asset_id, input_case_version)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO jobs (order_id, job_type, input_asset_id, input_case_version, idempotency_key)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (order_id, job_type) WHERE status IN ('QUEUED', 'RUNNING') DO NOTHING
-		RETURNING `+jobColumns, orderID, jobType, inputAssetID, inputCaseVersion)
+		RETURNING `+jobColumns, orderID, jobType, inputAssetID, inputCaseVersion, idempotencyKey)
 	j, err := scanJob(row)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -77,7 +79,7 @@ func (s *Store) ListJobsForOrder(ctx context.Context, orderID string) ([]Job, er
 	for rows.Next() {
 		var j Job
 		if err := rows.Scan(&j.ID, &j.OrderID, &j.JobType, &j.Status, &j.WorkerID, &j.LeaseExpiresAt,
-			&j.AttemptCount, &j.LastError, &j.InputAssetID, &j.InputCaseVersion, &j.Result, &j.CreatedAt, &j.UpdatedAt); err != nil {
+			&j.AttemptCount, &j.LastError, &j.InputAssetID, &j.InputCaseVersion, &j.IdempotencyKey, &j.Result, &j.CreatedAt, &j.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, j)
@@ -241,7 +243,7 @@ func orderIDForJob(ctx context.Context, tx pgx.Tx, jobID string) (string, error)
 func scanJob(row pgx.Row) (*Job, error) {
 	var j Job
 	err := row.Scan(&j.ID, &j.OrderID, &j.JobType, &j.Status, &j.WorkerID, &j.LeaseExpiresAt,
-		&j.AttemptCount, &j.LastError, &j.InputAssetID, &j.InputCaseVersion, &j.Result, &j.CreatedAt, &j.UpdatedAt)
+		&j.AttemptCount, &j.LastError, &j.InputAssetID, &j.InputCaseVersion, &j.IdempotencyKey, &j.Result, &j.CreatedAt, &j.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}

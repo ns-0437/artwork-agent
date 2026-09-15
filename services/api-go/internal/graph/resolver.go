@@ -63,3 +63,26 @@ func findingToMap(f *store.Finding) map[string]interface{} {
 		"createdAt":   fmtTime(f.CreatedAt),
 	}
 }
+
+func assetToMap(a *store.Asset) map[string]interface{} {
+	return map[string]interface{}{
+		"id":          a.ID,
+		"kind":        a.Kind,
+		"contentType": a.ContentType,
+		"widthPx":     a.WidthPx,
+		"heightPx":    a.HeightPx,
+		"sha256":      a.SHA256,
+		"createdAt":   fmtTime(a.CreatedAt),
+	}
+}
+
+func repairToMap(rp *store.Repair) map[string]interface{} {
+	return map[string]interface{}{
+		"id":             rp.ID,
+		"idempotencyKey": rp.IdempotencyKey,
+		"status":         rp.Status,
+		"reason":         rp.Reason,
+		"diagnosis":      rp.Diagnosis,
+		"createdAt":      fmtTime(rp.CreatedAt),
+	}
+}

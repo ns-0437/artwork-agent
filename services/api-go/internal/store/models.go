@@ -48,6 +48,7 @@ type Job struct {
 	LastError        *string
 	InputAssetID     *string
 	InputCaseVersion int
+	IdempotencyKey   *string // set for repair jobs; nil for inspect jobs
 	Result           *string // JSON-encoded result (e.g. inspection dimensions/mode/format), nil until completion
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -62,4 +63,19 @@ type Finding struct {
 	Evidence    string // JSON-encoded evidence blob
 	RuleVersion string
 	CreatedAt   time.Time
+}
+
+type Repair struct {
+	ID             string
+	OrderID        string
+	IdempotencyKey string
+	Status         string // PENDING | REPAIRED | REJECTED
+	Reason         *string
+	SourceAssetID  *string
+	DerivedAssetID *string
+	SourceHash     *string
+	DerivedHash    *string
+	Diagnosis      *string // JSON-encoded
+	JobID          *string
+	CreatedAt      time.Time
 }

@@ -31,25 +31,50 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 		},
 	})
 
+	assetType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Asset",
+		Fields: graphql.Fields{
+			"id":          &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+			"kind":        &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"contentType": &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"widthPx":     &graphql.Field{Type: graphql.Int},
+			"heightPx":    &graphql.Field{Type: graphql.Int},
+			"sha256":      &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"createdAt":   &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+		},
+	})
+
+	repairType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Repair",
+		Fields: graphql.Fields{
+			"id":             &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+			"idempotencyKey": &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"status":         &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"reason":         &graphql.Field{Type: graphql.String},
+			"diagnosis":      &graphql.Field{Type: graphql.String},
+			"createdAt":      &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+		},
+	})
+
 	orderType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "Order",
 		Fields: graphql.Fields{
-			"id":               &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
-			"ownerId":          &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
-			"productType":      &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
-			"declaredWidth":    &graphql.Field{Type: graphql.NewNonNull(graphql.Float)},
-			"declaredHeight":   &graphql.Field{Type: graphql.NewNonNull(graphql.Float)},
-			"declaredUnit":     &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
-			"customerRequest":  &graphql.Field{Type: graphql.String},
-			"artworkVersion":   &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
-			"intent":           &graphql.Field{Type: graphql.String},
+			"id":                &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+			"ownerId":           &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"productType":       &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"declaredWidth":     &graphql.Field{Type: graphql.NewNonNull(graphql.Float)},
+			"declaredHeight":    &graphql.Field{Type: graphql.NewNonNull(graphql.Float)},
+			"declaredUnit":      &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"customerRequest":   &graphql.Field{Type: graphql.String},
+			"artworkVersion":    &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
+			"intent":            &graphql.Field{Type: graphql.String},
 			"artworkIsTrimOnly": &graphql.Field{Type: graphql.Boolean},
-			"caseVersion":      &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
-			"artworkStatus":    &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
-			"proofStatus":      &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
-			"productionStatus": &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
-			"createdAt":        &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
-			"updatedAt":        &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"caseVersion":       &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
+			"artworkStatus":     &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"proofStatus":       &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"productionStatus":  &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"createdAt":         &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"updatedAt":         &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
 			"findings": &graphql.Field{
 				Type:    graphql.NewList(findingType),
 				Resolve: r.resolveOrderFindings,
@@ -57,6 +82,14 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 			"jobs": &graphql.Field{
 				Type:    graphql.NewList(jobType),
 				Resolve: r.resolveOrderJobs,
+			},
+			"assets": &graphql.Field{
+				Type:    graphql.NewList(assetType),
+				Resolve: r.resolveOrderAssets,
+			},
+			"repairs": &graphql.Field{
+				Type:    graphql.NewList(repairType),
+				Resolve: r.resolveOrderRepairs,
 			},
 		},
 	})

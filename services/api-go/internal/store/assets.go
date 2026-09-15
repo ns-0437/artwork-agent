@@ -130,6 +130,30 @@ func (s *Store) LatestAssetByKind(ctx context.Context, orderID, kind string) (*A
 	return a, nil
 }
 
+// ListAssetsForOrder returns every asset (original/repaired/preview) for an
+// order, oldest first - used to show the repair's exports (CLAUDE.md's
+// "Exports" requirement) without needing separate per-kind queries.
+func (s *Store) ListAssetsForOrder(ctx context.Context, orderID string) ([]Asset, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id, order_id, kind, storage_key, sha256, content_type, width_px, height_px, created_at
+		FROM assets WHERE order_id = $1 ORDER BY created_at ASC
+	`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Asset
+	for rows.Next() {
+		var a Asset
+		if err := rows.Scan(&a.ID, &a.OrderID, &a.Kind, &a.StorageKey, &a.SHA256, &a.ContentType, &a.WidthPx, &a.HeightPx, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 func scanAsset(row pgx.Row) (*Asset, error) {
 	var a Asset
 	err := row.Scan(&a.ID, &a.OrderID, &a.Kind, &a.StorageKey, &a.SHA256, &a.ContentType, &a.WidthPx, &a.HeightPx, &a.CreatedAt)

@@ -43,6 +43,23 @@ Day 2 replaces step 5's body with real findings persistence and the short-circui
 
 **Trim rectangle policy (v1):** `app/checks/trim.py`'s `resolve_trim` is the single source of truth. Border intent needs no confirmation - the whole image is unambiguously the trim. Full-bleed intent needs an explicit customer confirmation (`orders.artwork_is_trim_only`, set via the `confirmTrim` mutation) that the upload is trim-only (no bleed margin yet), in which case trim = image bounds; without it, both resolution and bleed report `NEEDS_INPUT` rather than guessing a boundary from pixel content, which the brief explicitly disallows. Both `resolution.check_resolution` and `bleed.check_bleed` take the confirmed trim dimensions explicitly (never the raw canvas size), so a repair that later produces a canvas larger than its trim stays correct - see CLAUDE.md point 12.
 
+## Day 3: verified repair
+
+`confirmTrim(orderId, artworkIsTrimOnly, caseVersion)` records whether the customer confirms the current upload is trim-only (no bleed margin) - it reopens the case (bumps `case_version`, resets `artwork_status`/`proof_status`) since it changes what the checks can determine.
+
+`requestRepair(orderId, idempotencyKey, caseVersion)` enqueues a `job_type='repair'` job bound to the current original asset, gated the same way `startResolution` is (one in-flight job per order+type) plus its own idempotency key so a retry after completion returns the existing outcome instead of duplicating it.
+
+The worker's `runRepair`:
+
+1. Checks the precondition (`intent='full_bleed' AND artwork_is_trim_only=true`) itself, before calling Python at all - `/repair` has no way to resolve trim ambiguity, so Go must have already resolved it.
+2. Calls `/repair`, which runs eligibility (`app/repair/eligibility.py`: opaque + uniform-color edge band), and if eligible, extends the canvas (`extend_background.py`: new canvas filled with the verified edge color, original pasted unresampled, margin rounded outward), then verifies (`verify.py`: decoded-pixel equality of the original content region - never file bytes/hashes, never a perceptual score). An unverified candidate is discarded and reported as a failure; nothing is written to storage in that case.
+3. On success, stores the repaired canvas and an annotated preview (`preview.py`: trim + canvas-edge overlays, drawn on a *copy*) via `internal/storage`, then re-runs `/inspect` against the new canvas with the now-known trim dimensions passed explicitly (never re-derived from the larger canvas).
+4. Commits everything - job SUCCEEDED, the `repairs` row, the new assets, the order's trim coordinates, fresh findings, and the state advance - in one transaction (`store.CompleteRepair`), gated on the worker's lease and `case_version` exactly like `CompleteInspection`.
+
+An ineligible or precondition-failing attempt still commits (a REJECTED `repairs` row with a specific reason, `artwork_status → NEEDS_REVIEW`) but touches nothing else - no new assets, no trim coordinates, original untouched.
+
+**v1 simplification:** only one repair attempt may be in flight per order regardless of idempotency key (see CLAUDE.md point 25).
+
 ## Known gaps (tracked, not yet fixed)
 
 - **No authentication or ownership checks.** `ownerId` on an order is a free-text field the client supplies - nothing verifies the caller actually owns the order they're mutating. Dev ports are bound to `127.0.0.1` specifically because of this gap (see CLAUDE.md point 26); this needs closing before any deployment beyond a local demo.

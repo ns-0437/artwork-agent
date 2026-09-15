@@ -4,7 +4,7 @@ Independent portfolio prototype: resolve an artwork blocker on a simulated stick
 
 This is an independent prototype based on publicly available requirements. It has no access to any real company's production pipeline, customer files, printer profiles, or operational metrics, and makes no claim of measured savings or private integration.
 
-Status: **Day 1** — order model + one real execution path (create order → upload artwork → enqueue job → worker inspects through Python → persist results → separate artwork/proof/production status). No deterministic checks yet (Day 2), no repair (Day 3), no agent loop (Day 4).
+Status: **Day 3** — order model, deterministic checks (resolution/color/bleed), explicit trim confirmation, and one verified repair (uniform-background bleed extension) are all working end to end. No agent loop yet (Day 4): repair must be triggered explicitly via `requestRepair`, not decided automatically.
 
 See [CLAUDE.md](CLAUDE.md) for the project map and constraints, and [docs/build-brief.pdf](docs/build-brief.pdf) for the full spec.
 
@@ -14,7 +14,7 @@ See [CLAUDE.md](CLAUDE.md) for the project map and constraints, and [docs/build-
 docker compose -f infra/docker-compose.yml up --build
 ```
 
-This starts Postgres (with `db/migrations/0001_init.sql` applied on first init), the Python image-inspection service, the Go API + worker, and the web UI.
+This starts Postgres (with every `db/migrations/*.sql` file applied, in order, on first init), the Python image-inspection service, the Go API + worker, and the web UI. If you're updating from an older checkout and the schema doesn't match, run `docker compose -f infra/docker-compose.yml down -v` first to force a clean re-init (Postgres only applies migrations to a fresh volume).
 
 - Web UI: http://localhost:5173
 - GraphQL API: http://localhost:8080/graphql

@@ -8,11 +8,11 @@ import (
 
 func TestDecideArtworkStatus(t *testing.T) {
 	cases := []struct {
-		name             string
-		findings         []store.FindingInput
-		intent           string
-		wantArtwork      string
-		wantProof        string
+		name        string
+		findings    []store.FindingInput
+		intent      string
+		wantArtwork string
+		wantProof   string
 	}{
 		{
 			name:        "empty findings never resolves",

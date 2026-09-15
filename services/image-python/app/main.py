@@ -9,6 +9,7 @@ or business-state logic belongs here (see CLAUDE.md point 4). It reports
 what each check found; api-go decides what that means for artwork_status.
 """
 
+import base64
 import io
 from typing import Optional
 
@@ -20,12 +21,45 @@ from app.checks.bleed import check_bleed
 from app.checks.color import check_color
 from app.checks.trim import resolve_trim
 from app.checks.units import to_inches
+from app.repair.eligibility import check_eligibility
+from app.repair.extend_background import extend_background
+from app.repair.preview import render_preview
+from app.repair.verify import verify_repair
 
 app = FastAPI(title="artwork-agent image service")
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # mirrors the Go upload cap
 MAX_DECODED_PIXELS = 25_000_000  # 25-megapixel decoded limit per the brief
 ALLOWED_FORMATS = {"PNG", "JPEG"}  # matches the brief's supported artwork formats
+
+
+def _decode_upload(data: bytes) -> Image.Image:
+    """Shared by /inspect and /repair: validate format/size before the
+    expensive full decode, exactly as CLAUDE.md point 27 requires."""
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="file exceeds 10MB upload limit")
+
+    try:
+        image = Image.open(io.BytesIO(data))
+    except Exception:
+        raise HTTPException(status_code=400, detail="could not decode image - unsupported or corrupt file")
+
+    if image.format not in ALLOWED_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unsupported image format: {image.format} (allowed: {', '.join(sorted(ALLOWED_FORMATS))})",
+        )
+
+    width, height = image.size
+    if width * height > MAX_DECODED_PIXELS:
+        raise HTTPException(status_code=400, detail="decoded image exceeds 25-megapixel limit")
+
+    try:
+        image.load()
+    except Exception:
+        raise HTTPException(status_code=400, detail="could not decode image - unsupported or corrupt file")
+
+    return image
 
 
 @app.get("/healthz")
@@ -47,33 +81,9 @@ async def inspect(
     trim_height_px: Optional[int] = Form(None),
 ):
     data = await file.read()
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=400, detail="file exceeds 10MB upload limit")
-
-    # Image.open() only reads the header - it does not decode pixel data, so
-    # format and declared dimensions can be checked before the expensive (and
-    # decompression-bomb-exploitable) full decode in image.load() below.
-    try:
-        image = Image.open(io.BytesIO(data))
-    except Exception:
-        raise HTTPException(status_code=400, detail="could not decode image - unsupported or corrupt file")
-
-    if image.format not in ALLOWED_FORMATS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"unsupported image format: {image.format} (allowed: {', '.join(sorted(ALLOWED_FORMATS))})",
-        )
-
+    image = _decode_upload(data)
     width, height = image.size
-    if width * height > MAX_DECODED_PIXELS:
-        raise HTTPException(status_code=400, detail="decoded image exceeds 25-megapixel limit")
-
     has_icc_profile = image.info.get("icc_profile") is not None
-
-    try:
-        image.load()  # now safe to fully decode
-    except Exception:
-        raise HTTPException(status_code=400, detail="could not decode image - unsupported or corrupt file")
 
     declared_width_in = to_inches(declared_width, declared_unit)
     declared_height_in = to_inches(declared_height, declared_unit)
@@ -116,4 +126,71 @@ async def inspect(
         "trim_width_px": trim.width_px if trim else None,
         "trim_height_px": trim.height_px if trim else None,
         "checks": checks,
+    }
+
+
+@app.post("/repair")
+async def repair(
+    file: UploadFile = File(...),
+    declared_width: float = Form(...),
+    declared_height: float = Form(...),
+    declared_unit: str = Form(...),
+):
+    """Repair only ever applies to the trim-only case: the whole uploaded
+    image IS the trim (that's the precondition api-go checks - see
+    CLAUDE.md point 12 - before even calling this), so PPI here is computed
+    directly from the image, the same formula resolution.py uses. This
+    endpoint doesn't call resolve_trim; there is no ambiguity to resolve.
+
+    On success, the repaired canvas and preview are returned as base64 PNG
+    - never written by this service, so it never needs to know about
+    storage. On failure (ineligible, or verification somehow fails), no
+    image data is returned - the original is left untouched by construction
+    since this endpoint never mutates its input.
+    """
+    data = await file.read()
+    image = _decode_upload(data)
+    width, height = image.size
+
+    eligibility = check_eligibility(image)
+    if not eligibility["eligible"]:
+        return {"repaired": False, "reason": eligibility["reason"]}
+
+    declared_width_in = to_inches(declared_width, declared_unit)
+    declared_height_in = to_inches(declared_height, declared_unit)
+    effective_ppi = min(width / declared_width_in, height / declared_height_in)
+
+    extended = extend_background(image, eligibility["edge_color"], effective_ppi)
+    canvas = extended["image"]
+
+    verified = verify_repair(
+        image, canvas, extended["trim_x_px"], extended["trim_y_px"], extended["trim_width_px"], extended["trim_height_px"]
+    )
+    if not verified:
+        # Should not happen given extend_background pastes without
+        # resampling - but never trust an unverified repair. Discard the
+        # candidate rather than return something that might not actually
+        # preserve the original content exactly.
+        return {"repaired": False, "reason": "pixel-equality verification failed after extension - repair discarded"}
+
+    preview = render_preview(canvas, extended["trim_x_px"], extended["trim_y_px"], extended["trim_width_px"], extended["trim_height_px"])
+
+    canvas_buf = io.BytesIO()
+    canvas.save(canvas_buf, format="PNG")
+    preview_buf = io.BytesIO()
+    preview.save(preview_buf, format="PNG")
+
+    return {
+        "repaired": True,
+        "image_base64": base64.b64encode(canvas_buf.getvalue()).decode("ascii"),
+        "preview_base64": base64.b64encode(preview_buf.getvalue()).decode("ascii"),
+        "width_px": canvas.width,
+        "height_px": canvas.height,
+        "trim_x_px": extended["trim_x_px"],
+        "trim_y_px": extended["trim_y_px"],
+        "trim_width_px": extended["trim_width_px"],
+        "trim_height_px": extended["trim_height_px"],
+        "margin_px": extended["margin_px"],
+        "effective_ppi": round(effective_ppi, 2),
+        "edge_color": list(eligibility["edge_color"]),
     }

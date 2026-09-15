@@ -52,7 +52,7 @@
     "intent": "full_bleed",
     "image_width_px": 900,
     "image_height_px": 900,
-    "notes": "Full-bleed intent but image sized exactly at trim - bleed check should block."
+    "notes": "Full-bleed intent, image sized exactly at trim (no bleed margin), uniform solid background - bleed check blocks pre-confirmation, and once artwork_is_trim_only is confirmed this is the repair-ELIGIBLE fixture (opaque, uniform edge band)."
   },
   {
     "id": "border-a",
@@ -64,5 +64,16 @@
     "image_width_px": 1200,
     "image_height_px": 600,
     "notes": "Border intent - missing bleed must not auto-fail since bleed isn't required."
+  },
+  {
+    "id": "gradient-edge-a",
+    "split": "dev",
+    "file": "dev/gradient-edge-a_base.png",
+    "declared_width_in": 3.0,
+    "declared_height_in": 3.0,
+    "intent": "full_bleed",
+    "image_width_px": 900,
+    "image_height_px": 900,
+    "notes": "Full-bleed intent, trim-only, but a left-to-right gradient touches every edge - repair-INELIGIBLE (not a uniform-color edge band). Must be refused with a specific reason and leave the original untouched."
   }
 ]

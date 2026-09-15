@@ -25,6 +25,16 @@ def make_solid_image(width_px: int, height_px: int, color, mode="RGB") -> Image.
     return Image.new(mode, (width_px, height_px), color)
 
 
+def make_gradient_image(width_px: int, height_px: int) -> Image.Image:
+    img = Image.new("RGB", (width_px, height_px))
+    px = img.load()
+    for x in range(width_px):
+        shade = int(255 * x / max(width_px - 1, 1))
+        for y in range(height_px):
+            px[x, y] = (shade, 40, 200 - shade // 2)
+    return img
+
+
 def save(img: Image.Image, path: Path, icc_profile: bytes | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if icc_profile is not None:
@@ -83,7 +93,9 @@ DESIGNS = [
     {
         "id": "missing-bleed-a",
         "split": "dev",
-        "notes": "Full-bleed intent but image sized exactly at trim - bleed check should block.",
+        "notes": "Full-bleed intent, image sized exactly at trim (no bleed margin), uniform solid "
+        "background - bleed check blocks pre-confirmation, and once artwork_is_trim_only is "
+        "confirmed this is the repair-ELIGIBLE fixture (opaque, uniform edge band).",
         "declared_width_in": 3.0,
         "declared_height_in": 3.0,
         "intent": "full_bleed",
@@ -102,13 +114,29 @@ DESIGNS = [
         "image_height_px": 600,
         "color": (60, 60, 60),
     },
+    {
+        "id": "gradient-edge-a",
+        "split": "dev",
+        "notes": "Full-bleed intent, trim-only, but a left-to-right gradient touches every edge - "
+        "repair-INELIGIBLE (not a uniform-color edge band). Must be refused with a specific "
+        "reason and leave the original untouched.",
+        "declared_width_in": 3.0,
+        "declared_height_in": 3.0,
+        "intent": "full_bleed",
+        "image_width_px": 900,
+        "image_height_px": 900,
+        "gradient": True,
+    },
 ]
 
 
 def main():
     manifest = []
     for design in DESIGNS:
-        img = make_solid_image(design["image_width_px"], design["image_height_px"], design["color"])
+        if design.get("gradient"):
+            img = make_gradient_image(design["image_width_px"], design["image_height_px"])
+        else:
+            img = make_solid_image(design["image_width_px"], design["image_height_px"], design["color"])
         filename = f"{design['id']}_base.png"
         out_path = FIXTURES_DIR / design["split"] / filename
         save(img, out_path)
