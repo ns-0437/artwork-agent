@@ -101,10 +101,11 @@ func (w *Worker) runInspect(ctx context.Context, job *store.Job) {
 	}
 
 	inspected, err := w.PyImage.Inspect(data, asset.StorageKey, asset.ContentType, pyclient.InspectInput{
-		DeclaredWidth:  order.DeclaredWidth,
-		DeclaredHeight: order.DeclaredHeight,
-		DeclaredUnit:   order.DeclaredUnit,
-		Intent:         intent,
+		DeclaredWidth:     order.DeclaredWidth,
+		DeclaredHeight:    order.DeclaredHeight,
+		DeclaredUnit:      order.DeclaredUnit,
+		Intent:            intent,
+		ArtworkIsTrimOnly: order.ArtworkIsTrimOnly,
 	})
 	if err != nil {
 		w.fail(ctx, job, "image service inspect failed: "+err.Error())
@@ -122,7 +123,7 @@ func (w *Worker) runInspect(ctx context.Context, job *store.Job) {
 			RuleVersion: c.RuleVersion,
 		})
 	}
-	artworkStatus, proofStatus := decideArtworkStatus(findings)
+	artworkStatus, proofStatus := decideArtworkStatus(findings, intent)
 
 	// The asset's dimensions, the job's result, every finding, and the
 	// order's state advance all commit together in one transaction, gated on
@@ -144,17 +145,64 @@ func (w *Worker) runInspect(ctx context.Context, job *store.Job) {
 	}
 }
 
+// allowedCheckResults is the complete per-check result vocabulary (CLAUDE.md
+// point 9). Anything else is malformed, never a silent pass-through.
+var allowedCheckResults = map[string]bool{
+	"PASS":         true,
+	"WARNING":      true,
+	"NEEDS_INPUT":  true,
+	"NEEDS_REVIEW": true,
+}
+
+// expectedChecksForIntent returns the set of check names that MUST be
+// present for a given intent. bleed only applies to full-bleed intent (see
+// CLAUDE.md point 12) - its absence for border intent is correct, not
+// missing data.
+func expectedChecksForIntent(intent string) map[string]bool {
+	expected := map[string]bool{"resolution": true, "color": true}
+	if intent == "full_bleed" {
+		expected["bleed"] = true
+	}
+	return expected
+}
+
 // decideArtworkStatus aggregates check RESULTS into a workflow state - it
 // does not recompute or second-guess any measurement (see CLAUDE.md point
-// 1). A WARNING never blocks; NEEDS_REVIEW always does; NEEDS_INPUT blocks
-// for now since the clarification round-trip that would resolve it isn't
-// wired up until Day 4 - transitioning to AWAITING_CLARIFICATION without a
-// way to answer it would be a dead end equivalent to staying BLOCKED, so
-// Day 2 just stays BLOCKED.
-func decideArtworkStatus(findings []store.FindingInput) (artworkStatus, proofStatus string) {
+// 1).
+//
+// It validates completeness FIRST: every check expected for this intent
+// must be present exactly once, with a result from the recognized
+// vocabulary. An empty, partial, or malformed findings list must never
+// resolve a case just because it happens to contain no NEEDS_REVIEW/
+// NEEDS_INPUT - "nothing to block on" is not the same as "everything
+// passed" (see CLAUDE.md point 28's incomplete-results-block rule). That
+// case escalates to NEEDS_REVIEW, the same as an unsafe finding, since it's
+// a system anomaly a human should look at, not something the customer can
+// act on.
+//
+// A WARNING never blocks; NEEDS_REVIEW always does; NEEDS_INPUT blocks for
+// now since the clarification round-trip that would resolve it isn't wired
+// up until Day 4 - transitioning to AWAITING_CLARIFICATION without a way to
+// answer it would be a dead end equivalent to staying BLOCKED.
+//
+// proof_status always stays NOT_PREPARED here, even when every check
+// passes: RESOLVED means only that no supported artwork blocker remains
+// (see CLAUDE.md point 3) - preparing a proof is its own step (Day 4's
+// agent loop) that must actually create and store a proof artifact before
+// claiming one exists.
+func decideArtworkStatus(findings []store.FindingInput, intent string) (artworkStatus, proofStatus string) {
+	expected := expectedChecksForIntent(intent)
+	seen := map[string]bool{}
 	hasNeedsReview := false
 	hasNeedsInput := false
+	malformed := false
+
 	for _, f := range findings {
+		if !expected[f.CheckName] || !allowedCheckResults[f.Result] {
+			malformed = true
+			continue
+		}
+		seen[f.CheckName] = true
 		switch f.Result {
 		case "NEEDS_REVIEW":
 			hasNeedsReview = true
@@ -162,13 +210,21 @@ func decideArtworkStatus(findings []store.FindingInput) (artworkStatus, proofSta
 			hasNeedsInput = true
 		}
 	}
+	for name := range expected {
+		if !seen[name] {
+			malformed = true
+		}
+	}
+
 	switch {
+	case malformed:
+		return "NEEDS_REVIEW", "NOT_PREPARED"
 	case hasNeedsReview:
 		return "NEEDS_REVIEW", "NOT_PREPARED"
 	case hasNeedsInput:
 		return "BLOCKED", "NOT_PREPARED"
 	default:
-		return "RESOLVED", "AWAITING_CUSTOMER_APPROVAL"
+		return "RESOLVED", "NOT_PREPARED"
 	}
 }
 

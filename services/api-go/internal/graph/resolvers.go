@@ -145,6 +145,29 @@ func (r *Resolver) resolveStartResolution(p graphql.ResolveParams) (interface{},
 	return jobToMap(job), nil
 }
 
+func (r *Resolver) resolveConfirmTrim(p graphql.ResolveParams) (interface{}, error) {
+	orderID := p.Args["orderId"].(string)
+	artworkIsTrimOnly := p.Args["artworkIsTrimOnly"].(bool)
+	expectedCaseVersion := p.Args["caseVersion"].(int)
+
+	ok, err := r.Store.ConfirmTrim(p.Context, orderID, artworkIsTrimOnly, expectedCaseVersion)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("order %s: case_version %d is stale, refresh and retry", orderID, expectedCaseVersion)
+	}
+
+	o, err := r.Store.GetOrder(p.Context, orderID)
+	if err != nil {
+		return nil, err
+	}
+	if o == nil {
+		return nil, fmt.Errorf("order %s not found", orderID)
+	}
+	return orderToMap(o), nil
+}
+
 func (r *Resolver) resolveAnswerClarification(p graphql.ResolveParams) (interface{}, error) {
 	return nil, errors.New("answerClarification is not implemented until Day 4")
 }

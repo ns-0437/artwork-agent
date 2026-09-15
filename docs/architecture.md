@@ -17,8 +17,8 @@ web/ (TypeScript, React) --GraphQL--> services/api-go (Go)
 
 ## State fields (frozen Day 1, see CLAUDE.md for the full rationale)
 
-- `artwork_status`: `BLOCKED` → `AWAITING_CLARIFICATION` → `BLOCKED` (after reply) → `RESOLVED` (or `NEEDS_REVIEW` for unsafe/unsupported cases). A case that passes every check on the first inspection short-circuits straight to `RESOLVED` - it never manufactures an unnecessary clarification/repair round. WARNING-level findings never block resolution.
-- `proof_status`: `NOT_PREPARED` → `AWAITING_CUSTOMER_APPROVAL` (set automatically once the workflow prepares a proof - a system action, not the customer approving anything).
+- `artwork_status`: `BLOCKED` → `AWAITING_CLARIFICATION` → `BLOCKED` (after reply) → `RESOLVED` (or `NEEDS_REVIEW` for unsafe/unsupported cases). A case that passes every expected check on the first inspection short-circuits straight to `RESOLVED` - it never manufactures an unnecessary clarification/repair round. WARNING-level findings never block resolution. A new upload reopens the case back to `BLOCKED` atomically (`store.RecordArtworkUpload`).
+- `proof_status`: `NOT_PREPARED` → `AWAITING_CUSTOMER_APPROVAL`, but ONLY once an explicit proof-preparation step actually creates and stores a proof artifact (Day 4's agent loop). `artwork_status=RESOLVED` alone never implies this - `decideArtworkStatus` always leaves `proof_status=NOT_PREPARED`.
 - `production_status`: `NOT_RELEASED` always, in every v1 code path.
 - `job.status`: `QUEUED` → `RUNNING` → `SUCCEEDED` | `FAILED`, claimed via one atomic SQL statement (`internal/store.ClaimNextJob`) so two workers can never both claim the same row.
 
@@ -34,13 +34,14 @@ Day 2 replaces step 5's body with real findings persistence and the short-circui
 
 ## Day 2: deterministic checks
 
-`/inspect` now runs three checks (`services/image-python/app/checks/`) against the decoded image and the order's declared width/height/unit/intent, returning PASS/WARNING/NEEDS_INPUT/NEEDS_REVIEW per check plus evidence and a `rule_version`. The worker persists every finding, the job's result, and the order's state advance in one transaction (`store.CompleteInspection`), then `worker.decideArtworkStatus` aggregates the findings:
+`/inspect` now runs three checks (`services/image-python/app/checks/`) against the decoded image and the order's declared width/height/unit/intent/trim-confirmation, returning PASS/WARNING/NEEDS_INPUT/NEEDS_REVIEW per check plus evidence and a `rule_version`. The worker persists every finding, the job's result, and the order's state advance in one transaction (`store.CompleteInspection`), then `worker.decideArtworkStatus` aggregates the findings:
 
+- First, completeness: every check *expected for this intent* must be present exactly once with a recognized result - otherwise `NEEDS_REVIEW` (system anomaly, not a customer-actionable finding).
 - Any `NEEDS_REVIEW` → `artwork_status = NEEDS_REVIEW`.
 - Else any `NEEDS_INPUT` → stays `BLOCKED` (not `AWAITING_CLARIFICATION` - that transition needs Day 4's clarification round-trip to mean anything).
-- Else (every check `PASS`/`WARNING`) → short-circuits to `RESOLVED`, `proof_status = AWAITING_CUSTOMER_APPROVAL`.
+- Else (every expected check `PASS`/`WARNING`) → short-circuits to `RESOLVED`, `proof_status` stays `NOT_PREPARED` (see CLAUDE.md point 3 - resolving the artwork blocker and preparing a proof are different steps).
 
-**Trim rectangle policy (v1, documented limitation, not a bug):** there is no trim-selection input yet. The resolution check treats the whole decoded image as the trim region (matches the brief's own worked example). The bleed check only runs for `intent='full_bleed'` and always returns `NEEDS_INPUT` for now, since guessing a trim boundary from image content is explicitly disallowed by the brief ("return NEEDS_INPUT rather than guessing from edge pixels"). Day 3's repair sets trim coordinates explicitly when it builds the new canvas, which is what makes a real bleed measurement possible - see CLAUDE.md point 12.
+**Trim rectangle policy (v1):** `app/checks/trim.py`'s `resolve_trim` is the single source of truth. Border intent needs no confirmation - the whole image is unambiguously the trim. Full-bleed intent needs an explicit customer confirmation (`orders.artwork_is_trim_only`, set via the `confirmTrim` mutation) that the upload is trim-only (no bleed margin yet), in which case trim = image bounds; without it, both resolution and bleed report `NEEDS_INPUT` rather than guessing a boundary from pixel content, which the brief explicitly disallows. Both `resolution.check_resolution` and `bleed.check_bleed` take the confirmed trim dimensions explicitly (never the raw canvas size), so a repair that later produces a canvas larger than its trim stays correct - see CLAUDE.md point 12.
 
 ## Known gaps (tracked, not yet fixed)
 

@@ -43,6 +43,7 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 			"customerRequest":  &graphql.Field{Type: graphql.String},
 			"artworkVersion":   &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
 			"intent":           &graphql.Field{Type: graphql.String},
+			"artworkIsTrimOnly": &graphql.Field{Type: graphql.Boolean},
 			"caseVersion":      &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
 			"artworkStatus":    &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
 			"proofStatus":      &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
@@ -125,6 +126,15 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 					"orderId": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
 				},
 				Resolve: r.resolveStartResolution,
+			},
+			"confirmTrim": &graphql.Field{
+				Type: graphql.NewNonNull(orderType),
+				Args: graphql.FieldConfigArgument{
+					"orderId":           &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+					"artworkIsTrimOnly": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Boolean)},
+					"caseVersion":       &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Int)},
+				},
+				Resolve: r.resolveConfirmTrim,
 			},
 			// answerClarification and requestRepair are declared now so the
 			// schema is frozen from Day 1, per the brief - they are wired up

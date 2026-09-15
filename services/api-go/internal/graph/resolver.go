@@ -21,21 +21,22 @@ func fmtTime(t time.Time) string { return t.Format(time.RFC3339) }
 
 func orderToMap(o *store.Order) map[string]interface{} {
 	return map[string]interface{}{
-		"id":               o.ID,
-		"ownerId":          o.OwnerID,
-		"productType":      o.ProductType,
-		"declaredWidth":    o.DeclaredWidth,
-		"declaredHeight":   o.DeclaredHeight,
-		"declaredUnit":     o.DeclaredUnit,
-		"customerRequest":  o.CustomerRequest,
-		"artworkVersion":   o.ArtworkVersion,
-		"intent":           o.Intent,
-		"caseVersion":      o.CaseVersion,
-		"artworkStatus":    o.ArtworkStatus,
-		"proofStatus":      o.ProofStatus,
-		"productionStatus": o.ProductionStatus,
-		"createdAt":        fmtTime(o.CreatedAt),
-		"updatedAt":        fmtTime(o.UpdatedAt),
+		"id":                o.ID,
+		"ownerId":           o.OwnerID,
+		"productType":       o.ProductType,
+		"declaredWidth":     o.DeclaredWidth,
+		"declaredHeight":    o.DeclaredHeight,
+		"declaredUnit":      o.DeclaredUnit,
+		"customerRequest":   o.CustomerRequest,
+		"artworkVersion":    o.ArtworkVersion,
+		"intent":            o.Intent,
+		"artworkIsTrimOnly": o.ArtworkIsTrimOnly,
+		"caseVersion":       o.CaseVersion,
+		"artworkStatus":     o.ArtworkStatus,
+		"proofStatus":       o.ProofStatus,
+		"productionStatus":  o.ProductionStatus,
+		"createdAt":         fmtTime(o.CreatedAt),
+		"updatedAt":         fmtTime(o.UpdatedAt),
 	}
 }
 

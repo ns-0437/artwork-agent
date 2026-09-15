@@ -16,6 +16,11 @@ type CreateAssetInput struct {
 	HeightPx    *int
 }
 
+// CreateAsset is a plain insert - used by call sites that manage their own
+// transaction and consistency around it (e.g. Day 3's repair completion,
+// which inserts a 'repaired'/'preview' asset alongside a repairs row and an
+// order-state update, all in one transaction it controls). It is NOT used
+// for original-artwork uploads - see RecordArtworkUpload for why.
 func (s *Store) CreateAsset(ctx context.Context, in CreateAssetInput) (*Asset, error) {
 	row := s.Pool.QueryRow(ctx, `
 		INSERT INTO assets (order_id, kind, storage_key, sha256, content_type, width_px, height_px)
@@ -23,6 +28,71 @@ func (s *Store) CreateAsset(ctx context.Context, in CreateAssetInput) (*Asset, e
 		RETURNING id, order_id, kind, storage_key, sha256, content_type, width_px, height_px, created_at
 	`, in.OrderID, in.Kind, in.StorageKey, in.SHA256, in.ContentType, in.WidthPx, in.HeightPx)
 	return scanAsset(row)
+}
+
+// RecordArtworkUpload inserts a new original-artwork asset and, in the same
+// transaction, reopens the case: bumps artwork_version and case_version,
+// resets artwork_status to BLOCKED and proof_status to NOT_PREPARED (any
+// previously prepared proof was prepared against the OLD artwork and is now
+// meaningless), and clears trim confirmation and coordinates (a replacement
+// upload might not even be the same content). This must be one transaction
+// - a partial write (asset recorded but the order not reopened) would let a
+// stale RESOLVED status from a prior upload persist against artwork the
+// system has never actually inspected.
+//
+// Any job already in flight against the old case_version will fail to
+// commit its result once this runs, via the same case_version guard in
+// CompleteInspection - no separate cancellation is needed.
+func (s *Store) RecordArtworkUpload(ctx context.Context, in CreateAssetInput) (*Asset, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) // no-op once committed
+
+	// artwork_version starts at 1 (the schema default) meaning "this is the
+	// first upload" - only a REPLACEMENT upload should bump it further, so
+	// check whether an original asset already exists before inserting.
+	var priorOriginalCount int
+	if in.Kind == "original" {
+		if err := tx.QueryRow(ctx, `
+			SELECT count(*) FROM assets WHERE order_id = $1 AND kind = 'original'
+		`, in.OrderID).Scan(&priorOriginalCount); err != nil {
+			return nil, err
+		}
+	}
+
+	row := tx.QueryRow(ctx, `
+		INSERT INTO assets (order_id, kind, storage_key, sha256, content_type, width_px, height_px)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, order_id, kind, storage_key, sha256, content_type, width_px, height_px, created_at
+	`, in.OrderID, in.Kind, in.StorageKey, in.SHA256, in.ContentType, in.WidthPx, in.HeightPx)
+	asset, err := scanAsset(row)
+	if err != nil {
+		return nil, err
+	}
+
+	if in.Kind == "original" {
+		isReplacement := priorOriginalCount > 0
+		if _, err := tx.Exec(ctx, `
+			UPDATE orders SET
+				artwork_version = artwork_version + CASE WHEN $2 THEN 1 ELSE 0 END,
+				case_version = case_version + 1,
+				artwork_status = 'BLOCKED',
+				proof_status = 'NOT_PREPARED',
+				artwork_is_trim_only = NULL,
+				trim_x_px = NULL, trim_y_px = NULL, trim_width_px = NULL, trim_height_px = NULL,
+				updated_at = now()
+			WHERE id = $1
+		`, in.OrderID, isReplacement); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return asset, nil
 }
 
 func (s *Store) GetAsset(ctx context.Context, id string) (*Asset, error) {

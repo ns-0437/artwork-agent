@@ -1,0 +1,15 @@
+-- Explicit trim confirmation. v1 supports exactly one confirmation mode:
+-- the customer confirms the uploaded image contains ONLY the trim content
+-- (no bleed margin yet) - trim bounds then equal the full image bounds, a
+-- fact api-go persists into trim_width_px/trim_height_px once the image is
+-- decoded, rather than re-deriving it from image size every time a check
+-- runs. NULL means unconfirmed, which keeps resolution AND bleed at
+-- NEEDS_INPUT for full-bleed-intent orders (border-intent orders need no
+-- confirmation at all - the whole image is unambiguously the trim, since
+-- there's no separate bleed region to be confused with).
+--
+-- Confirming (or re-confirming after a new upload) reopens the case:
+-- bumping case_version and resetting artwork_status/proof_status, since it
+-- changes what the checks can determine and any prior inspection result is
+-- now stale against the newly-known trim.
+ALTER TABLE orders ADD COLUMN artwork_is_trim_only BOOLEAN;

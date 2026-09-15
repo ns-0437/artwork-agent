@@ -25,6 +25,7 @@ type Order = {
   declaredHeight: number
   declaredUnit: string
   intent: string | null
+  artworkIsTrimOnly: boolean | null
   caseVersion: number
   artworkStatus: string
   proofStatus: string
@@ -34,7 +35,7 @@ type Order = {
 }
 
 const ORDER_FIELDS = `
-  id ownerId productType declaredWidth declaredHeight declaredUnit intent
+  id ownerId productType declaredWidth declaredHeight declaredUnit intent artworkIsTrimOnly
   caseVersion artworkStatus proofStatus productionStatus
   findings { id checkName result evidence ruleVersion }
   jobs { id jobType status attemptCount lastError }
@@ -97,6 +98,23 @@ export default function CaseView() {
       if (!res.ok) throw new Error(await res.text())
       const body = await res.json()
       setStatus(`Artwork uploaded as asset ${body.assetId}.`)
+    } catch (e) {
+      setStatus(`Error: ${(e as Error).message}`)
+    }
+  }
+
+  async function confirmTrim(isTrimOnly: boolean) {
+    if (!order) return
+    setStatus('Confirming trim...')
+    try {
+      const data = await gql<{ confirmTrim: Order }>(
+        `mutation($orderId: ID!, $artworkIsTrimOnly: Boolean!, $caseVersion: Int!) {
+          confirmTrim(orderId: $orderId, artworkIsTrimOnly: $artworkIsTrimOnly, caseVersion: $caseVersion) { ${ORDER_FIELDS} }
+        }`,
+        { orderId: order.id, artworkIsTrimOnly: isTrimOnly, caseVersion: order.caseVersion },
+      )
+      setOrder(data.confirmTrim)
+      setStatus(isTrimOnly ? 'Confirmed: upload is trim-only (no bleed margin yet).' : 'Confirmed: upload is not trim-only.')
     } catch (e) {
       setStatus(`Error: ${(e as Error).message}`)
     }
@@ -194,9 +212,21 @@ export default function CaseView() {
         </section>
       )}
 
+      {order && order.intent === 'full_bleed' && (
+        <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
+          <h2>3. Confirm trim</h2>
+          <p>Full-bleed intent needs this before resolution/bleed can be measured instead of asked about.</p>
+          <p>
+            Current: <b>{order.artworkIsTrimOnly === null ? 'unconfirmed' : order.artworkIsTrimOnly ? 'trim-only (no bleed yet)' : 'not trim-only'}</b>
+          </p>
+          <button onClick={() => confirmTrim(true)}>This upload is trim-only (no bleed margin)</button>{' '}
+          <button onClick={() => confirmTrim(false)}>This upload already has bleed included</button>
+        </section>
+      )}
+
       {order && (
         <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
-          <h2>3. Start resolution</h2>
+          <h2>4. Start resolution</h2>
           <button onClick={startResolution}>Start resolution</button>
         </section>
       )}

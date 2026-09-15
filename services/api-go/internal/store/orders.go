@@ -6,6 +6,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const orderColumns = `id, owner_id, product_type, declared_width, declared_height, declared_unit,
+	customer_request, artwork_version, intent, artwork_is_trim_only, trim_x_px, trim_y_px, trim_width_px, trim_height_px,
+	case_version, artwork_status, proof_status, production_status, created_at, updated_at`
+
 type CreateOrderInput struct {
 	OwnerID         string
 	ProductType     string
@@ -20,20 +24,12 @@ func (s *Store) CreateOrder(ctx context.Context, in CreateOrderInput) (*Order, e
 	row := s.Pool.QueryRow(ctx, `
 		INSERT INTO orders (owner_id, product_type, declared_width, declared_height, declared_unit, customer_request, intent)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, owner_id, product_type, declared_width, declared_height, declared_unit,
-			customer_request, artwork_version, intent, trim_x_px, trim_y_px, trim_width_px, trim_height_px,
-			case_version, artwork_status, proof_status, production_status, created_at, updated_at
-	`, in.OwnerID, in.ProductType, in.DeclaredWidth, in.DeclaredHeight, in.DeclaredUnit, in.CustomerRequest, in.Intent)
+		RETURNING `+orderColumns, in.OwnerID, in.ProductType, in.DeclaredWidth, in.DeclaredHeight, in.DeclaredUnit, in.CustomerRequest, in.Intent)
 	return scanOrder(row)
 }
 
 func (s *Store) GetOrder(ctx context.Context, id string) (*Order, error) {
-	row := s.Pool.QueryRow(ctx, `
-		SELECT id, owner_id, product_type, declared_width, declared_height, declared_unit,
-			customer_request, artwork_version, intent, trim_x_px, trim_y_px, trim_width_px, trim_height_px,
-			case_version, artwork_status, proof_status, production_status, created_at, updated_at
-		FROM orders WHERE id = $1
-	`, id)
+	row := s.Pool.QueryRow(ctx, `SELECT `+orderColumns+` FROM orders WHERE id = $1`, id)
 	o, err := scanOrder(row)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -47,7 +43,7 @@ func (s *Store) GetOrder(ctx context.Context, id string) (*Order, error) {
 func scanOrder(row pgx.Row) (*Order, error) {
 	var o Order
 	err := row.Scan(&o.ID, &o.OwnerID, &o.ProductType, &o.DeclaredWidth, &o.DeclaredHeight, &o.DeclaredUnit,
-		&o.CustomerRequest, &o.ArtworkVersion, &o.Intent, &o.TrimXPx, &o.TrimYPx, &o.TrimWidthPx, &o.TrimHeightPx,
+		&o.CustomerRequest, &o.ArtworkVersion, &o.Intent, &o.ArtworkIsTrimOnly, &o.TrimXPx, &o.TrimYPx, &o.TrimWidthPx, &o.TrimHeightPx,
 		&o.CaseVersion, &o.ArtworkStatus, &o.ProofStatus, &o.ProductionStatus, &o.CreatedAt, &o.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -72,6 +68,29 @@ func (s *Store) UpdateOrderStateIfVersion(ctx context.Context, orderID string, e
 		SET artwork_status = $1, proof_status = $2, case_version = case_version + 1, updated_at = now()
 		WHERE id = $3 AND case_version = $4
 	`, artworkStatus, proofStatus, orderID, expectedCaseVersion)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// ConfirmTrim records whether the customer confirms the current upload is
+// trim-only (no bleed margin present) - the only trim-confirmation mode v1
+// supports. This reopens the case (bumps case_version, resets
+// artwork_status to BLOCKED and proof_status to NOT_PREPARED) since it
+// changes what the checks can determine - any prior inspection result was
+// computed without this knowledge and is now stale. Zero rows affected
+// means the caller's case_version was stale (see UpdateOrderStateIfVersion).
+func (s *Store) ConfirmTrim(ctx context.Context, orderID string, artworkIsTrimOnly bool, expectedCaseVersion int) (bool, error) {
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE orders SET
+			artwork_is_trim_only = $1,
+			case_version = case_version + 1,
+			artwork_status = 'BLOCKED',
+			proof_status = 'NOT_PREPARED',
+			updated_at = now()
+		WHERE id = $2 AND case_version = $3
+	`, artworkIsTrimOnly, orderID, expectedCaseVersion)
 	if err != nil {
 		return false, err
 	}

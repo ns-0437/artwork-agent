@@ -3,25 +3,26 @@ package store
 import "time"
 
 type Order struct {
-	ID               string
-	OwnerID          string
-	ProductType      string
-	DeclaredWidth    float64
-	DeclaredHeight   float64
-	DeclaredUnit     string
-	CustomerRequest  *string
-	ArtworkVersion   int
-	Intent           *string
-	TrimXPx          *float64
-	TrimYPx          *float64
-	TrimWidthPx      *float64
-	TrimHeightPx     *float64
-	CaseVersion      int
-	ArtworkStatus    string
-	ProofStatus      string
-	ProductionStatus string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                string
+	OwnerID           string
+	ProductType       string
+	DeclaredWidth     float64
+	DeclaredHeight    float64
+	DeclaredUnit      string
+	CustomerRequest   *string
+	ArtworkVersion    int
+	Intent            *string
+	ArtworkIsTrimOnly *bool
+	TrimXPx           *float64
+	TrimYPx           *float64
+	TrimWidthPx       *float64
+	TrimHeightPx      *float64
+	CaseVersion       int
+	ArtworkStatus     string
+	ProofStatus       string
+	ProductionStatus  string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type Asset struct {

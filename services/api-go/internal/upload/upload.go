@@ -119,7 +119,7 @@ func (m *Manager) Handler() http.HandlerFunc {
 			return
 		}
 
-		asset, err := m.store.CreateAsset(r.Context(), store.CreateAssetInput{
+		asset, err := m.store.RecordArtworkUpload(r.Context(), store.CreateAssetInput{
 			OrderID:     orderID,
 			Kind:        "original",
 			StorageKey:  key,

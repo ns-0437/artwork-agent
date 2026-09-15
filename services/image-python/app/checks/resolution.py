@@ -1,25 +1,24 @@
 """Resolution check: effective PPI at the requested physical size.
 
-v1 treats the whole decoded image as the trim region for this check - there
-is no trim-selection input yet, and the brief's own worked example ("A 600 x
-600 pixel trim at 3 x 3 inches is 200 PPI") measures the full image the same
-way. This does not change for full-bleed intent: resolution is about pixel
-density of the content, independent of whether a bleed margin is also
-present (see bleed.py for how trim/bleed ambiguity is actually handled).
+Takes the TRIM region explicitly - never the whole decoded image - so this
+stays correct once repair can produce a canvas larger than its trim. Before
+a trim rectangle is confirmed, the caller must not invoke this at all (see
+trim.py); post-repair, the caller passes the trim api-go already knows it
+placed the original content at, not the new canvas's full dimensions.
 """
 
 RULE_VERSION = "resolution-v1"
 MIN_PPI = 300
 
 
-def check_resolution(image_width_px: int, image_height_px: int, declared_width_in: float, declared_height_in: float) -> dict:
-    effective_ppi = min(image_width_px / declared_width_in, image_height_px / declared_height_in)
+def check_resolution(trim_width_px: int, trim_height_px: int, declared_width_in: float, declared_height_in: float) -> dict:
+    effective_ppi = min(trim_width_px / declared_width_in, trim_height_px / declared_height_in)
 
     evidence = {
         "effective_ppi": round(effective_ppi, 2),
         "min_required_ppi": MIN_PPI,
-        "trim_width_px": image_width_px,
-        "trim_height_px": image_height_px,
+        "trim_width_px": trim_width_px,
+        "trim_height_px": trim_height_px,
         "declared_width_in": declared_width_in,
         "declared_height_in": declared_height_in,
     }

@@ -1,7 +1,8 @@
 // Package pyclient calls services/image-python over HTTP. Go forwards raw
 // image bytes it already fetched from storage plus the order's declared
-// dimensions/intent, so the Python side never needs to know which storage
-// backend is active or reach back into Postgres itself.
+// dimensions/intent/trim-confirmation state, so the Python side never needs
+// to know which storage backend is active or reach back into Postgres
+// itself.
 package pyclient
 
 import (
@@ -32,11 +33,13 @@ type CheckResult struct {
 }
 
 type InspectResult struct {
-	WidthPx  int           `json:"width_px"`
-	HeightPx int           `json:"height_px"`
-	Mode     string        `json:"mode"`
-	Format   string        `json:"format"`
-	Checks   []CheckResult `json:"checks"`
+	WidthPx      int           `json:"width_px"`
+	HeightPx     int           `json:"height_px"`
+	Mode         string        `json:"mode"`
+	Format       string        `json:"format"`
+	TrimWidthPx  *int          `json:"trim_width_px"`
+	TrimHeightPx *int          `json:"trim_height_px"`
+	Checks       []CheckResult `json:"checks"`
 }
 
 type InspectInput struct {
@@ -44,6 +47,15 @@ type InspectInput struct {
 	DeclaredHeight float64
 	DeclaredUnit   string
 	Intent         string
+
+	// ArtworkIsTrimOnly is the order's confirmation state (nil = unconfirmed).
+	ArtworkIsTrimOnly *bool
+
+	// TrimWidthPx/TrimHeightPx are set only for a post-repair recheck, where
+	// api-go already knows exactly where it placed the original content -
+	// never guessed from the file by services/image-python.
+	TrimWidthPx  *int
+	TrimHeightPx *int
 }
 
 func (c *Client) Inspect(imageBytes []byte, filename, contentType string, in InspectInput) (*InspectResult, error) {
@@ -63,6 +75,15 @@ func (c *Client) Inspect(imageBytes []byte, filename, contentType string, in Ins
 		"declared_height": strconv.FormatFloat(in.DeclaredHeight, 'f', -1, 64),
 		"declared_unit":   in.DeclaredUnit,
 		"intent":          in.Intent,
+	}
+	if in.ArtworkIsTrimOnly != nil {
+		fields["artwork_is_trim_only"] = strconv.FormatBool(*in.ArtworkIsTrimOnly)
+	}
+	if in.TrimWidthPx != nil {
+		fields["trim_width_px"] = strconv.Itoa(*in.TrimWidthPx)
+	}
+	if in.TrimHeightPx != nil {
+		fields["trim_height_px"] = strconv.Itoa(*in.TrimHeightPx)
 	}
 	for k, v := range fields {
 		if err := w.WriteField(k, v); err != nil {
