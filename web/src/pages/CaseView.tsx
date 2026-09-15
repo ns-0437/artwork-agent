@@ -1,0 +1,267 @@
+import { useEffect, useRef, useState } from 'react'
+import { gql } from '../lib/graphqlClient'
+
+type Finding = {
+  id: string
+  checkName: string
+  result: string
+  evidence: string
+  ruleVersion: string
+}
+
+type Job = {
+  id: string
+  jobType: string
+  status: string
+  attemptCount: number
+  lastError: string | null
+}
+
+type Order = {
+  id: string
+  ownerId: string
+  productType: string
+  declaredWidth: number
+  declaredHeight: number
+  declaredUnit: string
+  intent: string | null
+  caseVersion: number
+  artworkStatus: string
+  proofStatus: string
+  productionStatus: string
+  findings: Finding[]
+  jobs: Job[]
+}
+
+const ORDER_FIELDS = `
+  id ownerId productType declaredWidth declaredHeight declaredUnit intent
+  caseVersion artworkStatus proofStatus productionStatus
+  findings { id checkName result evidence ruleVersion }
+  jobs { id jobType status attemptCount lastError }
+`
+
+export default function CaseView() {
+  const [ownerId, setOwnerId] = useState('demo-customer')
+  const [productType, setProductType] = useState('die-cut-sticker')
+  const [width, setWidth] = useState(3)
+  const [height, setHeight] = useState(3)
+  const [unit, setUnit] = useState<'in' | 'mm'>('in')
+  const [intent, setIntent] = useState<'border' | 'full_bleed'>('full_bleed')
+  const [customerRequest, setCustomerRequest] = useState('Please check my sticker file before printing.')
+
+  const [order, setOrder] = useState<Order | null>(null)
+  const [file, setFile] = useState<File | null>(null)
+  const [status, setStatus] = useState<string>('')
+  const pollRef = useRef<number | null>(null)
+
+  async function createOrder() {
+    setStatus('Creating order...')
+    try {
+      const data = await gql<{ createOrder: Order }>(
+        `mutation($input: CreateOrderInput!) { createOrder(input: $input) { ${ORDER_FIELDS} } }`,
+        {
+          input: {
+            ownerId,
+            productType,
+            declaredWidth: width,
+            declaredHeight: height,
+            declaredUnit: unit,
+            customerRequest,
+            intent,
+          },
+        },
+      )
+      setOrder(data.createOrder)
+      setStatus(`Order ${data.createOrder.id} created.`)
+    } catch (e) {
+      setStatus(`Error: ${(e as Error).message}`)
+    }
+  }
+
+  async function uploadArtwork() {
+    if (!order || !file) return
+    setStatus('Requesting upload URL...')
+    try {
+      const ticket = await gql<{ createUpload: { uploadUrl: string; expiresAt: string } }>(
+        `mutation($orderId: ID!, $contentType: String!) {
+          createUpload(orderId: $orderId, contentType: $contentType) { uploadUrl expiresAt }
+        }`,
+        { orderId: order.id, contentType: file.type || 'application/octet-stream' },
+      )
+      setStatus('Uploading artwork...')
+      const res = await fetch(ticket.createUpload.uploadUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const body = await res.json()
+      setStatus(`Artwork uploaded as asset ${body.assetId}.`)
+    } catch (e) {
+      setStatus(`Error: ${(e as Error).message}`)
+    }
+  }
+
+  async function startResolution() {
+    if (!order) return
+    setStatus('Starting resolution...')
+    try {
+      await gql<{ startResolution: Job }>(
+        `mutation($orderId: ID!) { startResolution(orderId: $orderId) { id status jobType } }`,
+        { orderId: order.id },
+      )
+      setStatus('Resolution job enqueued. Polling for updates...')
+      startPolling(order.id)
+    } catch (e) {
+      setStatus(`Error: ${(e as Error).message}`)
+    }
+  }
+
+  function startPolling(orderId: string) {
+    if (pollRef.current) window.clearInterval(pollRef.current)
+    pollRef.current = window.setInterval(async () => {
+      try {
+        const data = await gql<{ order: Order }>(`query($id: ID!) { order(id: $id) { ${ORDER_FIELDS} } }`, {
+          id: orderId,
+        })
+        setOrder(data.order)
+      } catch (e) {
+        setStatus(`Error polling order: ${(e as Error).message}`)
+      }
+    }, 2000)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current)
+    }
+  }, [])
+
+  return (
+    <div>
+      <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
+        <h2>1. Create order</h2>
+        <p>
+          <label>
+            Owner ID <input value={ownerId} onChange={(e) => setOwnerId(e.target.value)} />
+          </label>
+        </p>
+        <p>
+          <label>
+            Product type <input value={productType} onChange={(e) => setProductType(e.target.value)} />
+          </label>
+        </p>
+        <p>
+          <label>
+            Width <input type="number" value={width} onChange={(e) => setWidth(Number(e.target.value))} />
+          </label>{' '}
+          <label>
+            Height <input type="number" value={height} onChange={(e) => setHeight(Number(e.target.value))} />
+          </label>{' '}
+          <select value={unit} onChange={(e) => setUnit(e.target.value as 'in' | 'mm')}>
+            <option value="in">in</option>
+            <option value="mm">mm</option>
+          </select>
+        </p>
+        <p>
+          <label>
+            Intent{' '}
+            <select value={intent} onChange={(e) => setIntent(e.target.value as 'border' | 'full_bleed')}>
+              <option value="full_bleed">full_bleed</option>
+              <option value="border">border</option>
+            </select>
+          </label>
+        </p>
+        <p>
+          <label>
+            Customer request
+            <br />
+            <textarea value={customerRequest} onChange={(e) => setCustomerRequest(e.target.value)} rows={2} cols={50} />
+          </label>
+        </p>
+        <button onClick={createOrder} disabled={!!order}>
+          Create order
+        </button>
+      </section>
+
+      {order && (
+        <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
+          <h2>2. Upload artwork</h2>
+          <input type="file" accept="image/png,image/jpeg" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <button onClick={uploadArtwork} disabled={!file}>
+            Upload
+          </button>
+        </section>
+      )}
+
+      {order && (
+        <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
+          <h2>3. Start resolution</h2>
+          <button onClick={startResolution}>Start resolution</button>
+        </section>
+      )}
+
+      {status && (
+        <p>
+          <em>{status}</em>
+        </p>
+      )}
+
+      {order && (
+        <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: '1rem' }}>
+          <h2>Case status</h2>
+          <table>
+            <tbody>
+              <tr>
+                <td>Order ID</td>
+                <td>{order.id}</td>
+              </tr>
+              <tr>
+                <td>Case version</td>
+                <td>{order.caseVersion}</td>
+              </tr>
+              <tr>
+                <td>Artwork status</td>
+                <td>
+                  <b>{order.artworkStatus}</b>
+                </td>
+              </tr>
+              <tr>
+                <td>Proof status</td>
+                <td>
+                  <b>{order.proofStatus}</b>
+                </td>
+              </tr>
+              <tr>
+                <td>Production status</td>
+                <td>
+                  <b>{order.productionStatus}</b>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>Jobs</h3>
+          <ul>
+            {order.jobs.length === 0 && <li>None yet.</li>}
+            {order.jobs.map((j) => (
+              <li key={j.id}>
+                {j.jobType} — {j.status} (attempt {j.attemptCount}){j.lastError ? ` — ${j.lastError}` : ''}
+              </li>
+            ))}
+          </ul>
+
+          <h3>Findings</h3>
+          <ul>
+            {order.findings.length === 0 && <li>None yet.</li>}
+            {order.findings.map((f) => (
+              <li key={f.id}>
+                {f.checkName}: <b>{f.result}</b> (rule {f.ruleVersion})
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  )
+}

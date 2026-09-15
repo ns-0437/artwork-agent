@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: artwork_agent
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../db/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  image-python:
+    build:
+      context: ../services/image-python
+    ports:
+      - "8081:8081"
+
+  api-go:
+    build:
+      context: ../services/api-go
+    command: ["/app/server"]
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/artwork_agent?sslmode=disable
+      IMAGE_SERVICE_URL: http://image-python:8081
+      STORAGE_LOCAL_DIR: /data/artifacts
+      API_BASE_URL: http://localhost:8080
+      UPLOAD_SIGNING_SECRET: dev-only-insecure-secret
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    volumes:
+      - artifacts:/data/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      image-python:
+        condition: service_started
+
+  worker:
+    build:
+      context: ../services/api-go
+    command: ["/app/worker"]
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/artwork_agent?sslmode=disable
+      IMAGE_SERVICE_URL: http://image-python:8081
+      STORAGE_LOCAL_DIR: /data/artifacts
+    volumes:
+      - artifacts:/data/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      image-python:
+        condition: service_started
+
+  web:
+    build:
+      context: ../web
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:8080/graphql
+    depends_on:
+      - api-go
+
+volumes:
+  pgdata:
+  artifacts:

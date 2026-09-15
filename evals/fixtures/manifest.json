@@ -1,0 +1,68 @@
+[
+  {
+    "id": "clean-a",
+    "split": "dev",
+    "file": "dev/clean-a_base.png",
+    "declared_width_in": 3.0,
+    "declared_height_in": 3.0,
+    "intent": "full_bleed",
+    "image_width_px": 1000,
+    "image_height_px": 1000,
+    "notes": "Clean 3x3in artwork at >=300 PPI, RGB, full bleed already present."
+  },
+  {
+    "id": "clean-b",
+    "split": "held-out",
+    "file": "held-out/clean-b_base.png",
+    "declared_width_in": 2.0,
+    "declared_height_in": 2.0,
+    "intent": "border",
+    "image_width_px": 700,
+    "image_height_px": 700,
+    "notes": "Clean 2x2in artwork at >=300 PPI, RGB, border intent (no bleed required)."
+  },
+  {
+    "id": "lowres-a",
+    "split": "dev",
+    "file": "dev/lowres-a_base.png",
+    "declared_width_in": 3.0,
+    "declared_height_in": 3.0,
+    "intent": "border",
+    "image_width_px": 600,
+    "image_height_px": 600,
+    "notes": "3x3in declared size but only ~200 effective PPI - should flag resolution."
+  },
+  {
+    "id": "rgb-noprofile-a",
+    "split": "held-out",
+    "file": "held-out/rgb-noprofile-a_base.png",
+    "declared_width_in": 2.5,
+    "declared_height_in": 2.5,
+    "intent": "border",
+    "image_width_px": 900,
+    "image_height_px": 900,
+    "notes": "RGB, no embedded ICC profile - color check should return an advisory, not a blocker."
+  },
+  {
+    "id": "missing-bleed-a",
+    "split": "dev",
+    "file": "dev/missing-bleed-a_base.png",
+    "declared_width_in": 3.0,
+    "declared_height_in": 3.0,
+    "intent": "full_bleed",
+    "image_width_px": 900,
+    "image_height_px": 900,
+    "notes": "Full-bleed intent but image sized exactly at trim - bleed check should block."
+  },
+  {
+    "id": "border-a",
+    "split": "held-out",
+    "file": "held-out/border-a_base.png",
+    "declared_width_in": 4.0,
+    "declared_height_in": 2.0,
+    "intent": "border",
+    "image_width_px": 1200,
+    "image_height_px": 600,
+    "notes": "Border intent - missing bleed must not auto-fail since bleed isn't required."
+  }
+]
