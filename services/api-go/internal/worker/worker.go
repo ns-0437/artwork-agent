@@ -10,6 +10,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/ns-0437/artwork-agent/services/api-go/internal/agent"
 	"github.com/ns-0437/artwork-agent/services/api-go/internal/pyclient"
 	"github.com/ns-0437/artwork-agent/services/api-go/internal/storage"
 	"github.com/ns-0437/artwork-agent/services/api-go/internal/store"
@@ -18,6 +19,13 @@ import (
 const (
 	pollInterval  = 2 * time.Second
 	leaseDuration = 30 * time.Second
+
+	// Bounded agent loop caps, per the brief: "Cap each execution segment at
+	// five tool calls and two transient retries." Persisted on the order
+	// (agent_tool_calls_used/agent_retries_used) so the cap survives across
+	// replies, not just within one process lifetime.
+	maxAgentToolCalls        = 5
+	maxAgentTransientRetries = 2
 )
 
 type Worker struct {
@@ -25,6 +33,12 @@ type Worker struct {
 	Store   *store.Store
 	Storage storage.Storage
 	PyImage *pyclient.Client
+
+	// Agent is nil-able: when unset, the worker runs deterministic-only
+	// (Day 2/3 behavior) and never attempts a clarification/auto-repair
+	// decision - useful for tests and for local runs without a provider
+	// key configured.
+	Agent agent.Provider
 }
 
 func (w *Worker) Run(ctx context.Context) {
@@ -165,6 +179,14 @@ func (w *Worker) runInspect(ctx context.Context, job *store.Job) {
 	}
 	if !ok {
 		w.fail(ctx, job, "lease lost or case_version changed during inspection - result discarded")
+		return
+	}
+
+	// The agent loop runs AFTER the deterministic commit, using its result
+	// as input - it never runs instead of it, and never touches findings or
+	// status itself (CLAUDE.md point 1). RESOLVED needs no further action.
+	if artworkStatus != "RESOLVED" {
+		w.runAgentDecision(ctx, job.OrderID)
 	}
 }
 
@@ -348,6 +370,186 @@ func (w *Worker) completeRejectedRepair(ctx context.Context, job *store.Job, ass
 	}
 }
 
+// trimOnlyClarificationQuestion is deliberately phrased so "yes" means
+// artwork_is_trim_only=true, matching interpretYesNo's direct mapping in
+// internal/graph/resolvers.go - see the comment where it's used below.
+const trimOnlyClarificationQuestion = "Is your uploaded artwork trim-only - meaning it does NOT yet include the printer's required bleed margin? Please answer yes or no."
+
+// runAgentDecision is step 3 of the brief's bounded loop: "Ask one targeted
+// clarification, repair an eligible case, or escalate." It runs once, after
+// the deterministic checks have already committed a non-RESOLVED status -
+// it reads that committed result as input and never recomputes or
+// second-guesses it (CLAUDE.md point 1). With no provider configured, this
+// is a no-op: the case simply stays at whatever decideArtworkStatus already
+// set (BLOCKED/NEEDS_REVIEW), same as Day 2/3 behavior.
+func (w *Worker) runAgentDecision(ctx context.Context, orderID string) {
+	if w.Agent == nil {
+		return
+	}
+
+	order, err := w.Store.GetOrder(ctx, orderID)
+	if err != nil || order == nil {
+		log.Printf("order %s: failed to load order for agent decision: %v", orderID, err)
+		return
+	}
+
+	if order.AgentToolCallsUsed >= maxAgentToolCalls {
+		log.Printf("order %s: agent tool-call budget exhausted (%d used) - escalating", orderID, order.AgentToolCallsUsed)
+		w.escalateBudgetExhausted(ctx, order)
+		return
+	}
+
+	findings, err := w.Store.ListFindings(ctx, orderID)
+	if err != nil {
+		log.Printf("order %s: failed to load findings for agent decision: %v", orderID, err)
+		return
+	}
+
+	intent := "border"
+	if order.Intent != nil {
+		intent = *order.Intent
+	}
+
+	input := agent.DecisionInput{
+		OrderID:        orderID,
+		ProductType:    order.ProductType,
+		DeclaredWidth:  order.DeclaredWidth,
+		DeclaredHeight: order.DeclaredHeight,
+		DeclaredUnit:   order.DeclaredUnit,
+		Intent:         intent,
+		Findings:       toFindingSummaries(latestFindingsByCheck(findings)),
+	}
+
+	var decision agent.Decision
+	var decideErr error
+	retries := 0
+	for {
+		decision, decideErr = w.Agent.Decide(ctx, input)
+		if decideErr == nil {
+			break
+		}
+		if retries >= maxAgentTransientRetries {
+			break
+		}
+		retries++
+		if err := w.Store.RecordAgentRetry(ctx, orderID, toolEventDetail(map[string]interface{}{"error": decideErr.Error()})); err != nil {
+			log.Printf("order %s: failed to record agent retry: %v", orderID, err)
+		}
+	}
+
+	callDetail := map[string]interface{}{"action": decision.Action}
+	if decision.Question != "" {
+		callDetail["model_suggested_question"] = decision.Question
+	}
+	if decideErr != nil {
+		callDetail["error"] = decideErr.Error()
+	}
+	if err := w.Store.RecordAgentToolCall(ctx, orderID, toolEventDetail(callDetail)); err != nil {
+		log.Printf("order %s: failed to record agent tool_event: %v", orderID, err)
+	}
+
+	if decideErr != nil {
+		log.Printf("order %s: agent decision failed after %d retries: %v - escalating", orderID, retries, decideErr)
+		w.escalateBudgetExhausted(ctx, order)
+		return
+	}
+
+	switch decision.Action {
+	case agent.ActionAskClarification:
+		// The PERSISTED question is always this fixed, deliberately-polarized
+		// text - never the model's free-form suggestion (logged above for
+		// audit only). v1 supports exactly one clarification type
+		// (trim-only confirmation), and answerClarification's interpretYesNo
+		// maps "yes" straight to artwork_is_trim_only=true: if the model's
+		// own phrasing were used instead, an equally sensible question with
+		// the OPPOSITE polarity (e.g. "does it already include bleed?")
+		// would invert that mapping and silently confirm the wrong thing.
+		// Fixing the wording removes that entire class of risk rather than
+		// trying to parse or normalize whatever the model asked.
+		question := trimOnlyClarificationQuestion
+		ok, err := w.Store.CreateClarificationAndAwait(ctx, orderID, question, order.CaseVersion)
+		if err != nil {
+			log.Printf("order %s: failed to persist clarification: %v", orderID, err)
+			return
+		}
+		if !ok {
+			log.Printf("order %s: case_version changed before clarification could be persisted - dropping this decision", orderID)
+		}
+
+	case agent.ActionRequestRepair:
+		w.triggerAutoRepair(ctx, order)
+
+	case agent.ActionEscalate:
+		// decideArtworkStatus already left this NEEDS_REVIEW or BLOCKED;
+		// escalate means "no further automated action", not a status change.
+	}
+}
+
+// triggerAutoRepair enqueues the same repair job requestRepair would, with a
+// system-generated idempotency key - runRepair's own precondition check
+// (intent=full_bleed AND artwork_is_trim_only=true) is the real safety net
+// here: if the agent's judgment is wrong, the job is safely REJECTED with a
+// specific reason rather than corrupting anything (see worker.runRepair).
+func (w *Worker) triggerAutoRepair(ctx context.Context, order *store.Order) {
+	if order.CurrentAssetID == nil {
+		log.Printf("order %s: agent chose request_repair but there is no current asset", order.ID)
+		return
+	}
+	asset, err := w.Store.LatestAssetByKind(ctx, order.ID, "original")
+	if err != nil || asset == nil {
+		log.Printf("order %s: agent chose request_repair but no original asset was found: %v", order.ID, err)
+		return
+	}
+	key := "agent-auto-" + order.ID + "-" + asset.ID
+	if _, err := w.Store.CreateJob(ctx, order.ID, "repair", asset.ID, order.CaseVersion, &key); err != nil {
+		log.Printf("order %s: failed to enqueue agent-triggered repair: %v", order.ID, err)
+	}
+}
+
+func (w *Worker) escalateBudgetExhausted(ctx context.Context, order *store.Order) {
+	if _, err := w.Store.EscalateToNeedsReview(ctx, order.ID, order.CaseVersion); err != nil {
+		log.Printf("order %s: failed to escalate after exhausted agent budget: %v", order.ID, err)
+	}
+}
+
+func toolEventDetail(v map[string]interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return `{}`
+	}
+	return string(b)
+}
+
+// latestFindingsByCheck keeps only the most recent finding per check_name -
+// findings are append-only across every inspection this order has ever had,
+// but the agent's decision must be based on the CURRENT state, not history.
+func latestFindingsByCheck(findings []store.Finding) []store.Finding {
+	latest := map[string]store.Finding{}
+	for _, f := range findings {
+		existing, ok := latest[f.CheckName]
+		if !ok || f.CreatedAt.After(existing.CreatedAt) {
+			latest[f.CheckName] = f
+		}
+	}
+	out := make([]store.Finding, 0, len(latest))
+	for _, f := range latest {
+		out = append(out, f)
+	}
+	return out
+}
+
+func toFindingSummaries(findings []store.Finding) []agent.FindingSummary {
+	out := make([]agent.FindingSummary, 0, len(findings))
+	for _, f := range findings {
+		out = append(out, agent.FindingSummary{
+			CheckName: f.CheckName,
+			Result:    f.Result,
+			Evidence:  f.Evidence,
+		})
+	}
+	return out
+}
+
 // allowedCheckResults is the complete per-check result vocabulary (CLAUDE.md
 // point 9). Anything else is malformed, never a silent pass-through.
 var allowedCheckResults = map[string]bool{
@@ -383,10 +585,12 @@ func expectedChecksForIntent(intent string) map[string]bool {
 // a system anomaly a human should look at, not something the customer can
 // act on.
 //
-// A WARNING never blocks; NEEDS_REVIEW always does; NEEDS_INPUT blocks for
-// now since the clarification round-trip that would resolve it isn't wired
-// up until Day 4 - transitioning to AWAITING_CLARIFICATION without a way to
-// answer it would be a dead end equivalent to staying BLOCKED.
+// A WARNING never blocks; NEEDS_REVIEW always does; NEEDS_INPUT blocks. This
+// function itself never sets AWAITING_CLARIFICATION - it only decides
+// whether the deterministic result blocks the case, staying at BLOCKED for
+// NEEDS_INPUT. Moving to AWAITING_CLARIFICATION (and actually asking a
+// question) is the agent loop's job (worker.runAgentDecision), a SEPARATE
+// step that runs after this function's result has already committed.
 //
 // proof_status always stays NOT_PREPARED here, even when every check
 // passes: RESOLVED means only that no supported artwork blocker remains

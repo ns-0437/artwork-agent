@@ -3,27 +3,29 @@ package store
 import "time"
 
 type Order struct {
-	ID                string
-	OwnerID           string
-	ProductType       string
-	DeclaredWidth     float64
-	DeclaredHeight    float64
-	DeclaredUnit      string
-	CustomerRequest   *string
-	ArtworkVersion    int
-	Intent            *string
-	ArtworkIsTrimOnly *bool
-	CurrentAssetID    *string
-	TrimXPx           *float64
-	TrimYPx           *float64
-	TrimWidthPx       *float64
-	TrimHeightPx      *float64
-	CaseVersion       int
-	ArtworkStatus     string
-	ProofStatus       string
-	ProductionStatus  string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                 string
+	OwnerID            string
+	ProductType        string
+	DeclaredWidth      float64
+	DeclaredHeight     float64
+	DeclaredUnit       string
+	CustomerRequest    *string
+	ArtworkVersion     int
+	Intent             *string
+	ArtworkIsTrimOnly  *bool
+	CurrentAssetID     *string
+	TrimXPx            *float64
+	TrimYPx            *float64
+	TrimWidthPx        *float64
+	TrimHeightPx       *float64
+	CaseVersion        int
+	ArtworkStatus      string
+	ProofStatus        string
+	ProductionStatus   string
+	AgentToolCallsUsed int
+	AgentRetriesUsed   int
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type Asset struct {
@@ -64,6 +66,15 @@ type Finding struct {
 	Evidence    string // JSON-encoded evidence blob
 	RuleVersion string
 	CreatedAt   time.Time
+}
+
+type Clarification struct {
+	ID         string
+	OrderID    string
+	Question   string
+	Answer     *string
+	AnsweredAt *time.Time
+	CreatedAt  time.Time
 }
 
 type Repair struct {

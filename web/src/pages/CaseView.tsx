@@ -17,6 +17,13 @@ type Job = {
   lastError: string | null
 }
 
+type Clarification = {
+  id: string
+  question: string
+  answer: string | null
+  answeredAt: string | null
+}
+
 type Order = {
   id: string
   ownerId: string
@@ -32,6 +39,7 @@ type Order = {
   productionStatus: string
   findings: Finding[]
   jobs: Job[]
+  clarifications: Clarification[]
 }
 
 const ORDER_FIELDS = `
@@ -39,6 +47,7 @@ const ORDER_FIELDS = `
   caseVersion artworkStatus proofStatus productionStatus
   findings { id checkName result evidence ruleVersion }
   jobs { id jobType status attemptCount lastError }
+  clarifications { id question answer answeredAt }
 `
 
 export default function CaseView() {
@@ -53,6 +62,7 @@ export default function CaseView() {
   const [order, setOrder] = useState<Order | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [status, setStatus] = useState<string>('')
+  const [clarificationAnswer, setClarificationAnswer] = useState('')
   const pollRef = useRef<number | null>(null)
 
   async function createOrder() {
@@ -115,6 +125,25 @@ export default function CaseView() {
       )
       setOrder(data.confirmTrim)
       setStatus(isTrimOnly ? 'Confirmed: upload is trim-only (no bleed margin yet).' : 'Confirmed: upload is not trim-only.')
+    } catch (e) {
+      setStatus(`Error: ${(e as Error).message}`)
+    }
+  }
+
+  async function answerClarification(clarificationId: string) {
+    if (!order || !clarificationAnswer.trim()) return
+    setStatus('Submitting answer...')
+    try {
+      const data = await gql<{ answerClarification: Order }>(
+        `mutation($id: ID!, $answer: String!, $caseVersion: Int!) {
+          answerClarification(clarificationId: $id, answer: $answer, caseVersion: $caseVersion) { ${ORDER_FIELDS} }
+        }`,
+        { id: clarificationId, answer: clarificationAnswer, caseVersion: order.caseVersion },
+      )
+      setOrder(data.answerClarification)
+      setClarificationAnswer('')
+      setStatus('Answer submitted - resolution resumed automatically.')
+      startPolling(order.id)
     } catch (e) {
       setStatus(`Error: ${(e as Error).message}`)
     }
@@ -231,6 +260,28 @@ export default function CaseView() {
         </section>
       )}
 
+      {order &&
+        order.artworkStatus === 'AWAITING_CLARIFICATION' &&
+        (() => {
+          const pending = order.clarifications.find((c) => c.answeredAt === null)
+          if (!pending) return null
+          return (
+            <section style={{ border: '2px solid #d97706', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
+              <h2>The agent has a question</h2>
+              <p>{pending.question}</p>
+              <input
+                value={clarificationAnswer}
+                onChange={(e) => setClarificationAnswer(e.target.value)}
+                placeholder="yes or no"
+                style={{ marginRight: '0.5rem' }}
+              />
+              <button onClick={() => answerClarification(pending.id)} disabled={!clarificationAnswer.trim()}>
+                Submit answer
+              </button>
+            </section>
+          )
+        })()}
+
       {status && (
         <p>
           <em>{status}</em>
@@ -287,6 +338,17 @@ export default function CaseView() {
             {order.findings.map((f) => (
               <li key={f.id}>
                 {f.checkName}: <b>{f.result}</b> (rule {f.ruleVersion})
+              </li>
+            ))}
+          </ul>
+
+          <h3>Clarifications</h3>
+          <ul>
+            {order.clarifications.length === 0 && <li>None yet.</li>}
+            {order.clarifications.map((c) => (
+              <li key={c.id}>
+                Q: {c.question}
+                {c.answer ? <> — A: {c.answer}</> : <> — (awaiting answer)</>}
               </li>
             ))}
           </ul>

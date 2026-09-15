@@ -8,7 +8,7 @@ import (
 
 const orderColumns = `id, owner_id, product_type, declared_width, declared_height, declared_unit,
 	customer_request, artwork_version, intent, artwork_is_trim_only, current_asset_id, trim_x_px, trim_y_px, trim_width_px, trim_height_px,
-	case_version, artwork_status, proof_status, production_status, created_at, updated_at`
+	case_version, artwork_status, proof_status, production_status, agent_tool_calls_used, agent_retries_used, created_at, updated_at`
 
 type CreateOrderInput struct {
 	OwnerID         string
@@ -44,7 +44,7 @@ func scanOrder(row pgx.Row) (*Order, error) {
 	var o Order
 	err := row.Scan(&o.ID, &o.OwnerID, &o.ProductType, &o.DeclaredWidth, &o.DeclaredHeight, &o.DeclaredUnit,
 		&o.CustomerRequest, &o.ArtworkVersion, &o.Intent, &o.ArtworkIsTrimOnly, &o.CurrentAssetID, &o.TrimXPx, &o.TrimYPx, &o.TrimWidthPx, &o.TrimHeightPx,
-		&o.CaseVersion, &o.ArtworkStatus, &o.ProofStatus, &o.ProductionStatus, &o.CreatedAt, &o.UpdatedAt)
+		&o.CaseVersion, &o.ArtworkStatus, &o.ProofStatus, &o.ProductionStatus, &o.AgentToolCallsUsed, &o.AgentRetriesUsed, &o.CreatedAt, &o.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +68,68 @@ func (s *Store) UpdateOrderStateIfVersion(ctx context.Context, orderID string, e
 		SET artwork_status = $1, proof_status = $2, case_version = case_version + 1, updated_at = now()
 		WHERE id = $3 AND case_version = $4
 	`, artworkStatus, proofStatus, orderID, expectedCaseVersion)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// RecordAgentToolCall bumps agent_tool_calls_used and logs a tool_events row
+// for one decision-call attempt (successful or not) - the persisted half of
+// the bounded loop's 5-tool-call cap (CLAUDE.md point/brief: "cap each
+// execution segment at five tool calls"). detailJSON is a JSON-encoded blob
+// (action taken, or the error) for the audit trail.
+func (s *Store) RecordAgentToolCall(ctx context.Context, orderID string, detailJSON string) error {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE orders SET agent_tool_calls_used = agent_tool_calls_used + 1, updated_at = now() WHERE id = $1
+	`, orderID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO tool_events (order_id, event_type, detail) VALUES ($1, 'tool_call', $2::jsonb)
+	`, orderID, detailJSON); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RecordAgentRetry bumps agent_retries_used and logs a tool_events row - the
+// persisted half of the bounded loop's 2-transient-retry cap.
+func (s *Store) RecordAgentRetry(ctx context.Context, orderID string, detailJSON string) error {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE orders SET agent_retries_used = agent_retries_used + 1, updated_at = now() WHERE id = $1
+	`, orderID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO tool_events (order_id, event_type, detail) VALUES ($1, 'retry', $2::jsonb)
+	`, orderID, detailJSON); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// EscalateToNeedsReview is used when the agent loop itself can't produce a
+// decision (budget exhausted, or every retry failed) - the case still needs
+// SOME terminal state, and NEEDS_REVIEW (a human should look at it) is the
+// honest one, not a silent retry-forever or a guessed resolution.
+func (s *Store) EscalateToNeedsReview(ctx context.Context, orderID string, expectedCaseVersion int) (bool, error) {
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE orders SET artwork_status = 'NEEDS_REVIEW', case_version = case_version + 1, updated_at = now()
+		WHERE id = $1 AND case_version = $2
+	`, orderID, expectedCaseVersion)
 	if err != nil {
 		return false, err
 	}

@@ -56,6 +56,17 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 		},
 	})
 
+	clarificationType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Clarification",
+		Fields: graphql.Fields{
+			"id":         &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+			"question":   &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"answer":     &graphql.Field{Type: graphql.String},
+			"answeredAt": &graphql.Field{Type: graphql.String},
+			"createdAt":  &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+		},
+	})
+
 	orderType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "Order",
 		Fields: graphql.Fields{
@@ -86,6 +97,10 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 			"assets": &graphql.Field{
 				Type:    graphql.NewList(assetType),
 				Resolve: r.resolveOrderAssets,
+			},
+			"clarifications": &graphql.Field{
+				Type:    graphql.NewList(clarificationType),
+				Resolve: r.resolveOrderClarifications,
 			},
 			"repairs": &graphql.Field{
 				Type:    graphql.NewList(repairType),

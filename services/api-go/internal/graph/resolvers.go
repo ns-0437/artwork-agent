@@ -3,6 +3,8 @@ package graph
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/graphql-go/graphql"
 
@@ -65,6 +67,20 @@ func (r *Resolver) resolveOrderAssets(p graphql.ResolveParams) (interface{}, err
 	out := make([]map[string]interface{}, 0, len(assets))
 	for i := range assets {
 		out = append(out, assetToMap(&assets[i]))
+	}
+	return out, nil
+}
+
+func (r *Resolver) resolveOrderClarifications(p graphql.ResolveParams) (interface{}, error) {
+	src := p.Source.(map[string]interface{})
+	orderID := src["id"].(string)
+	clarifications, err := r.Store.ListClarificationsForOrder(p.Context, orderID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]interface{}, 0, len(clarifications))
+	for i := range clarifications {
+		out = append(out, clarificationToMap(&clarifications[i]))
 	}
 	return out, nil
 }
@@ -203,8 +219,81 @@ func (r *Resolver) resolveConfirmTrim(p graphql.ResolveParams) (interface{}, err
 	return orderToMap(o), nil
 }
 
+// interpretYesNo is a deterministic, non-LLM interpretation of a closed
+// yes/no reply. v1's only supported clarification is a trim-only
+// confirmation (CLAUDE.md point 12), so this is a rule, not a judgment call
+// - it must never go through the model. Only the first word matters (so
+// "yes, it does" and "no it doesn't" both work), matched whole so "yesterday"
+// or "nothing" don't false-positive on a "yes"/"no" prefix. Ambiguous input
+// is rejected rather than guessed at, the same principle as the checks
+// themselves.
+func interpretYesNo(answer string) (value bool, ok bool) {
+	a := strings.ToLower(strings.TrimSpace(answer))
+	words := strings.FieldsFunc(a, func(r rune) bool {
+		return !unicode.IsLetter(r)
+	})
+	if len(words) == 0 {
+		return false, false
+	}
+	switch words[0] {
+	case "y", "yes":
+		return true, true
+	case "n", "no":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
 func (r *Resolver) resolveAnswerClarification(p graphql.ResolveParams) (interface{}, error) {
-	return nil, errors.New("answerClarification is not implemented until Day 4")
+	clarificationID := p.Args["clarificationId"].(string)
+	answer := p.Args["answer"].(string)
+	expectedCaseVersion := p.Args["caseVersion"].(int)
+
+	clarification, err := r.Store.GetClarification(p.Context, clarificationID)
+	if err != nil {
+		return nil, err
+	}
+	if clarification == nil {
+		return nil, fmt.Errorf("clarification %s not found", clarificationID)
+	}
+	if clarification.AnsweredAt != nil {
+		return nil, fmt.Errorf("clarification %s was already answered", clarificationID)
+	}
+
+	isTrimOnly, ok := interpretYesNo(answer)
+	if !ok {
+		return nil, fmt.Errorf("could not interpret %q as yes/no - please answer clearly (e.g. \"yes\" or \"no\")", answer)
+	}
+
+	applied, err := r.Store.AnswerClarificationAndConfirmTrim(p.Context, clarificationID, answer, clarification.OrderID, isTrimOnly, expectedCaseVersion)
+	if err != nil {
+		return nil, err
+	}
+	if !applied {
+		return nil, fmt.Errorf("clarification %s: case_version %d is stale, or it was already answered - refresh and retry", clarificationID, expectedCaseVersion)
+	}
+
+	o, err := r.Store.GetOrder(p.Context, clarification.OrderID)
+	if err != nil {
+		return nil, err
+	}
+	if o == nil {
+		return nil, fmt.Errorf("order %s not found", clarification.OrderID)
+	}
+
+	// "A validated reply enqueues continuation": automatically start a fresh
+	// inspection against the current asset, now that trim is confirmed -
+	// the customer doesn't have to separately call startResolution.
+	if o.CurrentAssetID != nil {
+		if asset, err := r.Store.GetAsset(p.Context, *o.CurrentAssetID); err == nil && asset != nil {
+			if _, err := r.Store.CreateJob(p.Context, clarification.OrderID, "inspect", asset.ID, o.CaseVersion, nil); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return orderToMap(o), nil
 }
 
 func (r *Resolver) resolveRequestRepair(p graphql.ResolveParams) (interface{}, error) {

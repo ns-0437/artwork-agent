@@ -83,6 +83,7 @@ func (s *Store) RecordArtworkUpload(ctx context.Context, in CreateAssetInput) (*
 				artwork_is_trim_only = NULL,
 				current_asset_id = $3,
 				trim_x_px = NULL, trim_y_px = NULL, trim_width_px = NULL, trim_height_px = NULL,
+				agent_tool_calls_used = 0, agent_retries_used = 0,
 				updated_at = now()
 			WHERE id = $1
 		`, in.OrderID, isReplacement, asset.ID); err != nil {

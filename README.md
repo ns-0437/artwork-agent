@@ -4,7 +4,7 @@ Independent portfolio prototype: resolve an artwork blocker on a simulated stick
 
 This is an independent prototype based on publicly available requirements. It has no access to any real company's production pipeline, customer files, printer profiles, or operational metrics, and makes no claim of measured savings or private integration.
 
-Status: **Day 3** — order model, deterministic checks (resolution/color/bleed), explicit trim confirmation, and one verified repair (uniform-background bleed extension) are all working end to end. No agent loop yet (Day 4): repair must be triggered explicitly via `requestRepair`, not decided automatically.
+Status: **Day 4** — order model, deterministic checks, one verified repair, and a bounded agent loop (clarify → resume → auto-repair → verify) are all working end to end, verified live with a real LLM provider. **The provider is currently Groq, not Claude** (the Anthropic account available had no usable credits) **and not xAI's Grok either** (an unrelated company also using a similar-sounding name) - see CLAUDE.md point 14 for why this distinction matters and how the adapter stays swappable. Not yet implemented: proof preparation (loop step 5 - `proof_status` never leaves `NOT_PREPARED`), evaluation harness, and deployment (Day 5).
 
 See [CLAUDE.md](CLAUDE.md) for the project map and constraints, and [docs/build-brief.pdf](docs/build-brief.pdf) for the full spec.
 

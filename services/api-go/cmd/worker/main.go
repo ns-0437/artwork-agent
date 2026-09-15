@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ns-0437/artwork-agent/services/api-go/internal/agent"
 	"github.com/ns-0437/artwork-agent/services/api-go/internal/pyclient"
 	"github.com/ns-0437/artwork-agent/services/api-go/internal/storage"
 	"github.com/ns-0437/artwork-agent/services/api-go/internal/store"
@@ -44,7 +45,23 @@ func main() {
 		Store:   st,
 		Storage: disk,
 		PyImage: py,
+		Agent:   buildAgentProvider(),
 	}
-	log.Printf("starting worker %s", w.ID)
+	log.Printf("starting worker %s (agent provider: %v)", w.ID, w.Agent != nil)
 	w.Run(ctx)
+}
+
+// buildAgentProvider picks the agent loop's provider from environment
+// config. Groq (fast inference host for open models - NOT xAI's Grok, see
+// CLAUDE.md) is used here as a practical stand-in while Anthropic account
+// credits were unavailable; the brief's intended Claude-first choice would
+// slot in here as another adapter.Provider implementation without changing
+// anything else - the interface is what makes this replaceable. No key
+// configured means no provider: the worker runs deterministic-only, same as
+// Day 2/3.
+func buildAgentProvider() agent.Provider {
+	if key := os.Getenv("GROQ_API_KEY"); key != "" {
+		return agent.NewGroqAdapter(key, envOr("GROQ_MODEL", ""))
+	}
+	return nil
 }

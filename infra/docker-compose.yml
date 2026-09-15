@@ -47,6 +47,11 @@ services:
     build:
       context: ../services/api-go
     command: ["/app/worker"]
+    # Loads GROQ_API_KEY (and ANTHROPIC_API_KEY, GROQ_MODEL if set) from the
+    # repo-root .env - it's gitignored and never baked into the image. Only
+    # the worker needs this; the agent loop runs there, not in api-go.
+    env_file:
+      - ../.env
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/artwork_agent?sslmode=disable
       IMAGE_SERVICE_URL: http://image-python:8081

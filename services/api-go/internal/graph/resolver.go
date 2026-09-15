@@ -86,3 +86,18 @@ func repairToMap(rp *store.Repair) map[string]interface{} {
 		"createdAt":      fmtTime(rp.CreatedAt),
 	}
 }
+
+func clarificationToMap(c *store.Clarification) map[string]interface{} {
+	m := map[string]interface{}{
+		"id":        c.ID,
+		"question":  c.Question,
+		"answer":    c.Answer,
+		"createdAt": fmtTime(c.CreatedAt),
+	}
+	if c.AnsweredAt != nil {
+		m["answeredAt"] = fmtTime(*c.AnsweredAt)
+	} else {
+		m["answeredAt"] = nil
+	}
+	return m
+}
