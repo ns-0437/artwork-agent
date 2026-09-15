@@ -25,6 +25,7 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 			"status":       &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
 			"attemptCount": &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
 			"lastError":    &graphql.Field{Type: graphql.String},
+			"result":       &graphql.Field{Type: graphql.String},
 			"createdAt":    &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
 			"updatedAt":    &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
 		},

@@ -59,12 +59,32 @@ CREATE TABLE jobs (
     lease_expires_at    TIMESTAMPTZ,
     attempt_count       INTEGER NOT NULL DEFAULT 0,
     last_error          TEXT,
+
+    -- The job is bound to exactly this asset and this case_version at
+    -- creation time - a later upload or case change must not silently alter
+    -- what an in-flight job acts on. The worker reads input_asset_id, never
+    -- "whatever is latest right now"; input_case_version gates whether the
+    -- job's eventual result is still allowed to advance the order.
+    input_asset_id      UUID NOT NULL REFERENCES assets(id),
+    input_case_version  INTEGER NOT NULL,
+
+    -- Populated on completion (e.g. inspection dimensions/mode/format, or a
+    -- repair's diagnosis). A SUCCEEDED status alone does not prove a result
+    -- was stored - callers query this to confirm it was.
+    result              JSONB,
+
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_jobs_order_id ON jobs(order_id);
 CREATE INDEX idx_jobs_status_queued ON jobs(status) WHERE status = 'QUEUED';
+
+-- At most one QUEUED/RUNNING job of a given type per order, so a repeated
+-- startResolution call while one is already in flight is a no-op instead of
+-- enqueuing a duplicate.
+CREATE UNIQUE INDEX idx_jobs_one_active_per_order_type
+    ON jobs(order_id, job_type) WHERE status IN ('QUEUED', 'RUNNING');
 
 CREATE TABLE findings (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),

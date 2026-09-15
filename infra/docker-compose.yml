@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ../db/migrations:/docker-entrypoint-initdb.d
@@ -20,7 +20,7 @@ services:
     build:
       context: ../services/image-python
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
 
   api-go:
     build:
@@ -34,7 +34,7 @@ services:
       UPLOAD_SIGNING_SECRET: dev-only-insecure-secret
       PORT: "8080"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - artifacts:/data/artifacts
     depends_on:
@@ -63,7 +63,7 @@ services:
     build:
       context: ../web
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     environment:
       VITE_API_URL: http://localhost:8080/graphql
     depends_on:

@@ -55,24 +55,17 @@ func scanOrder(row pgx.Row) (*Order, error) {
 	return &o, nil
 }
 
-// AdvanceOrderState moves the case forward as a result of the worker/agent's
-// own processing - not a client-submitted mutation - so it is not gated on a
-// client-supplied case_version; the job's lease is the worker's concurrency
-// control. It still increments case_version so any in-flight client mutation
-// referencing the prior version correctly becomes stale.
-func (s *Store) AdvanceOrderState(ctx context.Context, orderID, artworkStatus, proofStatus string) error {
-	_, err := s.Pool.Exec(ctx, `
-		UPDATE orders
-		SET artwork_status = $1, proof_status = $2, case_version = case_version + 1, updated_at = now()
-		WHERE id = $3
-	`, artworkStatus, proofStatus, orderID)
-	return err
-}
-
-// UpdateOrderStateIfVersion is for client-submitted mutations (answerClarification,
-// requestRepair, from Day 3/4 onward) that must be rejected if the case has moved
-// since the client last observed it. Zero rows affected means the caller's
-// case_version was stale.
+// UpdateOrderStateIfVersion is for a standalone, client-submitted mutation
+// (answerClarification, requestRepair, from Day 3/4 onward) that must be
+// rejected if the case has moved since the client last observed it. Zero
+// rows affected means the caller's case_version was stale.
+//
+// A worker/agent-driven state advance that must commit alongside other
+// writes (e.g. persisting a job's result) should NOT call this as a separate
+// statement - two separate pool.Exec calls can't share a transaction, so a
+// crash between them could leave the result stored but the order state
+// unadvanced, or vice versa. See store.CompleteInspection for the pattern:
+// do the order UPDATE inline, in the same transaction, gated the same way.
 func (s *Store) UpdateOrderStateIfVersion(ctx context.Context, orderID string, expectedCaseVersion int, artworkStatus, proofStatus string) (bool, error) {
 	tag, err := s.Pool.Exec(ctx, `
 		UPDATE orders

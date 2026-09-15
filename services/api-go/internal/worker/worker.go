@@ -63,13 +63,21 @@ func (w *Worker) tick(ctx context.Context) error {
 }
 
 func (w *Worker) runInspect(ctx context.Context, job *store.Job) {
-	asset, err := w.Store.LatestAssetByKind(ctx, job.OrderID, "original")
+	// The job is bound to a specific asset (frozen at creation time) - never
+	// "whatever is latest right now", so a later upload can't change what an
+	// in-flight job inspects.
+	if job.InputAssetID == nil {
+		w.fail(ctx, job, "job has no bound input asset")
+		return
+	}
+
+	asset, err := w.Store.GetAsset(ctx, *job.InputAssetID)
 	if err != nil {
-		w.fail(ctx, job, "failed to look up original artwork asset: "+err.Error())
+		w.fail(ctx, job, "failed to look up bound input asset: "+err.Error())
 		return
 	}
 	if asset == nil {
-		w.fail(ctx, job, "no original artwork asset found for this order")
+		w.fail(ctx, job, "bound input asset no longer exists")
 		return
 	}
 
@@ -79,25 +87,31 @@ func (w *Worker) runInspect(ctx context.Context, job *store.Job) {
 		return
 	}
 
-	result, err := w.PyImage.Inspect(data, asset.StorageKey, asset.ContentType)
+	inspected, err := w.PyImage.Inspect(data, asset.StorageKey, asset.ContentType)
 	if err != nil {
 		w.fail(ctx, job, "image service inspect failed: "+err.Error())
 		return
 	}
-	log.Printf("job %s inspected order %s: %dx%d %s (%s)", job.ID, job.OrderID, result.WidthPx, result.HeightPx, result.Mode, result.Format)
+	log.Printf("job %s inspected order %s: %dx%d %s (%s)", job.ID, job.OrderID, inspected.WidthPx, inspected.HeightPx, inspected.Mode, inspected.Format)
 
-	// No checks are implemented yet (Day 2), so there is nothing that could
-	// resolve the case - it stays BLOCKED. Day 2 adds real findings here and
-	// the short-circuit to RESOLVED when every check is PASS/WARNING-only.
-	if err := w.Store.AdvanceOrderState(ctx, job.OrderID, "BLOCKED", "NOT_PREPARED"); err != nil {
-		w.fail(ctx, job, "failed to advance order state: "+err.Error())
+	// No checks are implemented yet (Day 2), so nothing could resolve the
+	// case - it stays BLOCKED. The asset's dimensions, the job's result, and
+	// the order's state advance all commit together in one transaction,
+	// gated on this worker still holding a valid lease and the case not
+	// having moved on since this job was bound to job.InputCaseVersion. See
+	// store.CompleteInspection.
+	ok, err := w.Store.CompleteInspection(ctx, job.ID, w.ID, *job.InputAssetID, job.InputCaseVersion, store.InspectionResult{
+		WidthPx:  inspected.WidthPx,
+		HeightPx: inspected.HeightPx,
+		Mode:     inspected.Mode,
+		Format:   inspected.Format,
+	}, "BLOCKED", "NOT_PREPARED")
+	if err != nil {
+		log.Printf("job %s: failed to commit inspection result: %v", job.ID, err)
 		return
 	}
-
-	if ok, err := w.Store.CompleteJob(ctx, job.ID, w.ID); err != nil {
-		log.Printf("job %s: failed to mark complete: %v", job.ID, err)
-	} else if !ok {
-		log.Printf("job %s: lease was lost before completion could be recorded", job.ID)
+	if !ok {
+		w.fail(ctx, job, "lease lost or case_version changed during inspection - result discarded")
 	}
 }
 

@@ -123,9 +123,24 @@ func (r *Resolver) resolveStartResolution(p graphql.ResolveParams) (interface{},
 		return nil, errors.New("no artwork uploaded for this order yet")
 	}
 
-	job, err := r.Store.CreateJob(p.Context, orderID, "inspect")
+	// The job freezes which asset and case_version it applies to right now;
+	// the worker will act on exactly this asset even if a newer one is
+	// uploaded before it runs.
+	job, err := r.Store.CreateJob(p.Context, orderID, "inspect", asset.ID, o.CaseVersion)
 	if err != nil {
 		return nil, err
+	}
+	if job == nil {
+		// An inspect job is already QUEUED/RUNNING for this order - the
+		// partial unique index rejected the insert. Idempotent no-op:
+		// return the in-flight job instead of erroring or duplicating it.
+		job, err = r.Store.GetActiveJob(p.Context, orderID, "inspect")
+		if err != nil {
+			return nil, err
+		}
+		if job == nil {
+			return nil, errors.New("failed to start or find an active resolution job")
+		}
 	}
 	return jobToMap(job), nil
 }

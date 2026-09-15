@@ -37,16 +37,19 @@ type Asset struct {
 }
 
 type Job struct {
-	ID             string
-	OrderID        string
-	JobType        string
-	Status         string
-	WorkerID       *string
-	LeaseExpiresAt *time.Time
-	AttemptCount   int
-	LastError      *string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID               string
+	OrderID          string
+	JobType          string
+	Status           string
+	WorkerID         *string
+	LeaseExpiresAt   *time.Time
+	AttemptCount     int
+	LastError        *string
+	InputAssetID     *string
+	InputCaseVersion int
+	Result           *string // JSON-encoded result (e.g. inspection dimensions/mode/format), nil until completion
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type Finding struct {

@@ -46,6 +46,7 @@ func jobToMap(j *store.Job) map[string]interface{} {
 		"status":       j.Status,
 		"attemptCount": j.AttemptCount,
 		"lastError":    j.LastError,
+		"result":       j.Result,
 		"createdAt":    fmtTime(j.CreatedAt),
 		"updatedAt":    fmtTime(j.UpdatedAt),
 	}
