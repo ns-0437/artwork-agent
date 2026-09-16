@@ -4,6 +4,16 @@ Resolves an artwork blocker on a simulated sticker order: inspect the file, clar
 
 **Independent portfolio prototype.** No access to any real company's production pipeline, customer files, printer profiles, or operational metrics. Makes no claim of measured savings or private integration.
 
+## Live demo
+
+**[ns-0437.github.io/artwork-agent](https://ns-0437.github.io/artwork-agent/)** - the real stack, not a mock: static frontend on GitHub Pages, `api-go` + `worker` + `image-python` on Cloud Run (`asia-south1`, project `artwork-agent-demo`), Postgres on a free-tier Neon instance, artifacts in a GCS bucket with a 7-day deletion lifecycle.
+
+Deployed revision: commit [`8e83fb1`](https://github.com/ns-0437/artwork-agent/commit/8e83fb13caf49b27f38ded5696dceebf0be89ab4) (`master`, 2026-09-17). Verified against the live deployment, not just locally: an unauthenticated request to `image-python` returns `403`; the full upload -> inspect -> clarify/repair -> proof loop was driven end to end through the deployed frontend and reached `RESOLVED` / `AWAITING_CUSTOMER_APPROVAL`.
+
+`image-python`'s "private Python" requirement (per the brief) is enforced by IAM alone (`roles/run.invoker` granted only to the calling service's own service account, never `allUsers`/`allAuthenticatedUsers`) - not by network ingress. `ingress: internal` was tried first and reverted: Cloud Run only treats a caller as "internal" if it's attached to a Serverless VPC connector or uses Direct VPC egress, neither of which is set up here, so a sibling Cloud Run service's call left over the public internet and got rejected identically to an outside caller. `ingress: all` + IAM-only auth was the chosen tradeoff for a portfolio demo's cost/complexity budget - a VPC connector would restore true network-level isolation at a real, indefinite extra cost (~$8-10/month minimum), which "avoids that specific cost" is a narrower and more accurate claim than "free" (Cloud Run's own compute/request billing still applies regardless of ingress setting).
+
+Two things the demo intentionally doesn't do: this is a single-instance walkthrough, not a load-bearing service - don't expect it to stay up under sustained traffic; and the worker's `agent_decide` step calls a live Groq model, so repeated runs against the same synthetic test image can land on `request_repair` or `escalate` inconsistently (the same non-determinism the evaluation harness's methodology section already documents), which is expected model behavior, not a deployment fault.
+
 ## Results, in one table
 
 34 fixtures (16 dev, 18 held-out), driven through the real stack end to end, three ways. Full methodology and honest boundaries: [docs/case_study.md](docs/case_study.md).
@@ -42,7 +52,7 @@ No `.env` file is required for local use - `infra/docker-compose.yml` bakes in w
 
 ## Screenshots
 
-Not included in this repository - the agent tooling used to build and verify this project could drive the UI and confirm behavior via its text output, but could not reliably capture screen images in this session. The demo script above documents the exact UI states (clarification prompt, job list, findings, final status) a live run produces; running `docker compose up` and following it takes under five minutes.
+Not included in this repository - the agent tooling used to build and verify this project could drive the UI and confirm behavior via its text output, but could not reliably capture screen images in this session. The demo script above documents the exact UI states (clarification prompt, job list, findings, final status) a live run produces. The [live demo](#live-demo) above is the fastest way to see it directly; `docker compose up` (below) reproduces it locally in under five minutes.
 
 ## Provider note
 
@@ -50,7 +60,6 @@ The active decision-making provider is **Groq**, not Claude and not xAI's Grok -
 
 ## What's prepared but not executed
 
-- **Cloud deployment.** Cloud Run configs (`infra/gcp/`) and a GCS storage backend are written and pass `go test`, but neither has been run against a live GCP project.
 - **An actual process-kill test.** Crash recovery is verified against hand-reproduced DB/storage states a crash would leave, not an actual killed process - see `CLAUDE.md` points 21 and 48.
 - **Cost-per-case in dollars, and a Grok/Claude comparison.** Token counts are reported; a dollar figure and the brief's optional model comparison are out of scope for this pass.
 
