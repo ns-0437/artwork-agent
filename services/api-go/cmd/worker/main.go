@@ -31,10 +31,9 @@ func main() {
 	}
 	defer st.Close()
 
-	storageDir := envOr("STORAGE_LOCAL_DIR", "./data/artifacts")
-	disk, err := storage.NewLocalDisk(storageDir)
+	disk, err := storage.NewFromEnv(ctx)
 	if err != nil {
-		log.Fatalf("failed to init local storage: %v", err)
+		log.Fatalf("failed to init storage: %v", err)
 	}
 
 	imageServiceURL := envOr("IMAGE_SERVICE_URL", "http://localhost:8081")

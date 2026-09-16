@@ -1,0 +1,46 @@
+# Cloud Run service for the public GraphQL API + upload endpoint
+# (services/api-go/cmd/server). Deploy with:
+#   gcloud run services replace infra/gcp/api-go-service.yaml --region=REGION
+# after substituting PROJECT_ID/REGION and creating the secrets referenced
+# below (see infra/gcp/README.md).
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: artwork-agent-api
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        # api-go talks to Cloud SQL over the Cloud SQL Auth Proxy sidecar
+        # Cloud Run provides automatically when this annotation is set.
+        run.googleapis.com/cloudsql-instances: PROJECT_ID:REGION:artwork-agent-db
+    spec:
+      containers:
+        - image: REGION-docker.pkg.dev/PROJECT_ID/artwork-agent/api-go:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: artwork-agent-database-url
+                  key: latest
+            - name: STORAGE_BACKEND
+              value: gcs
+            - name: GCS_BUCKET
+              value: PROJECT_ID-artwork-agent-artifacts
+            - name: UPLOAD_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: artwork-agent-upload-signing-secret
+                  key: latest
+            - name: API_BASE_URL
+              value: https://artwork-agent-api-REGION_HASH.a.run.app # fill in after first deploy, then redeploy
+            - name: IMAGE_SERVICE_URL
+              value: https://artwork-agent-image-python-internal.a.run.app # private ingress, see image-python-service.yaml
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi

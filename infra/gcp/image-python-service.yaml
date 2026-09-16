@@ -1,0 +1,22 @@
+# Cloud Run service for services/image-python - the brief calls this out as
+# "private Python": ingress is restricted to internal traffic (from other
+# Cloud Run services / VPC) only, never reachable from the public internet.
+# Deploy with:
+#   gcloud run services replace infra/gcp/image-python-service.yaml --region=REGION
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: artwork-agent-image-python
+  annotations:
+    run.googleapis.com/ingress: internal
+spec:
+  template:
+    spec:
+      containers:
+        - image: REGION-docker.pkg.dev/PROJECT_ID/artwork-agent/image-python:latest
+          ports:
+            - containerPort: 8081
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi # Pillow decode of a near-25-megapixel image needs headroom

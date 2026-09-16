@@ -1,0 +1,56 @@
+# Deploys services/api-go/cmd/worker AS-IS: a long-running poll loop
+# (worker.Worker.Run), not a task that runs to completion. That's why this
+# is a Cloud Run SERVICE (min-instances=1, no public ingress, no HTTP
+# traffic actually served) rather than a Cloud Run JOB - Cloud Run Jobs are
+# for finite work that exits, and this worker's poll loop never does.
+#
+# The brief's suggested architecture ("Cloud Run Job for queued work") is
+# the more idiomatic target: a job invoked on a schedule (Cloud Scheduler +
+# Eventarc, or triggered per-enqueue) that claims and drains whatever is
+# QUEUED, then exits. Adapting worker.Worker.Run to that shape (process one
+# batch and return, instead of an infinite ticker loop) is real code change
+# beyond what this deployment-config pass covers - deliberately NOT done
+# here per the reduced Day 5 deployment scope (config only, not executed;
+# see README.md's Day 5 status). This file deploys the CURRENT code
+# correctly; migrating to a true Cloud Run Job is follow-up work.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: artwork-agent-worker
+  annotations:
+    run.googleapis.com/ingress: internal
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/cloudsql-instances: PROJECT_ID:REGION:artwork-agent-db
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "1" # exactly one worker - see CLAUDE.md on lease-based single-claim, not on running N of these
+    spec:
+      containers:
+        - image: REGION-docker.pkg.dev/PROJECT_ID/artwork-agent/worker:latest
+          # cmd/worker has no HTTP server; Cloud Run still requires SOME
+          # port to consider the revision healthy - a trivial container
+          # entrypoint wrapper or startup probe override is needed here in
+          # practice. Flagged rather than worked around silently.
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: artwork-agent-database-url
+                  key: latest
+            - name: STORAGE_BACKEND
+              value: gcs
+            - name: GCS_BUCKET
+              value: PROJECT_ID-artwork-agent-artifacts
+            - name: IMAGE_SERVICE_URL
+              value: https://artwork-agent-image-python-internal.a.run.app
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: artwork-agent-groq-api-key
+                  key: latest
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
