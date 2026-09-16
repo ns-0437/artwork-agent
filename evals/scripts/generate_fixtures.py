@@ -252,12 +252,13 @@ DESIGNS = [
         "customer_request": "Please check everything before printing.",
         "artwork_is_trim_only": True,
         "expected_artwork_status": "NEEDS_REVIEW", "expected_proof_status": "NOT_PREPARED",
-        "expect_repair": True, "expect_repair_status": "REJECTED", "unsafe_reason_substring": "not a uniform color",
         "notes": "Low resolution (200 PPI) AND missing bleed (zero margin) at once, on a gradient (non-uniform) "
-        "edge: bleed's NEEDS_REVIEW makes the agent correctly ATTEMPT repair (the finding matches "
-        "hasConfirmedInsufficientBleedFinding), but eligibility rejects it (non-uniform edge) - resulting in "
-        "NEEDS_REVIEW either way, whether or not the agent is enabled, since the low-resolution blocker has no "
-        "supported fix and the repair attempt is correctly rejected rather than silently skipped.",
+        "edge: bleed's NEEDS_REVIEW makes request_repair a VALID choice (the finding matches "
+        "hasConfirmedInsufficientBleedFinding) - eligibility would reject it (non-uniform edge) if attempted - but "
+        "escalating directly, without attempting a repair the model can reasonably judge won't help given the "
+        "coexisting unrelated resolution problem, is ALSO valid (the narrowed system prompt explicitly says "
+        "'when in doubt, escalate'). Both paths converge on NEEDS_REVIEW, so no expect_repair assertion here - "
+        "which path the model takes on any given run is not asserted, only the final state.",
     },
     {
         "id": "ppi-boundary-dev", "split": "dev", "kind": "ppi_triplet", "color": (50, 140, 210),
@@ -412,8 +413,7 @@ DESIGNS = [
         "customer_request": "Please check everything before printing.",
         "artwork_is_trim_only": True,
         "expected_artwork_status": "NEEDS_REVIEW", "expected_proof_status": "NOT_PREPARED",
-        "expect_repair": True, "expect_repair_status": "REJECTED", "unsafe_reason_substring": "not a uniform color",
-        "notes": "Held-out counterpart to mixed-issues-a.",
+        "notes": "Held-out counterpart to mixed-issues-a - no expect_repair assertion, see that fixture's notes.",
     },
     {
         "id": "ppi-boundary-held-out", "split": "held-out", "kind": "ppi_triplet", "color": (60, 150, 220),
