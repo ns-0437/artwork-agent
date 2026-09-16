@@ -252,6 +252,7 @@ DESIGNS = [
         "customer_request": "Please check everything before printing.",
         "artwork_is_trim_only": True,
         "expected_artwork_status": "NEEDS_REVIEW", "expected_proof_status": "NOT_PREPARED",
+        "repair_allowed": True,
         "notes": "Low resolution (200 PPI) AND missing bleed (zero margin) at once, on a gradient (non-uniform) "
         "edge: bleed's NEEDS_REVIEW makes request_repair a VALID choice (the finding matches "
         "hasConfirmedInsufficientBleedFinding) - eligibility would reject it (non-uniform edge) if attempted - but "
@@ -413,6 +414,7 @@ DESIGNS = [
         "customer_request": "Please check everything before printing.",
         "artwork_is_trim_only": True,
         "expected_artwork_status": "NEEDS_REVIEW", "expected_proof_status": "NOT_PREPARED",
+        "repair_allowed": True,
         "notes": "Held-out counterpart to mixed-issues-a - no expect_repair assertion, see that fixture's notes.",
     },
     {
@@ -422,6 +424,58 @@ DESIGNS = [
         "artwork_is_trim_only": None,
         "notes": "Held-out counterpart to ppi-boundary-dev - a genuinely different design (different color/base), same 299/300/301 PPI boundary coverage.",
     },
+
+    # --- fresh held-out fixtures, reserved for the frozen report ---
+    # Added AFTER the mixed-issues behavior-observed correction (see
+    # evals/CHANGES.md) and never run through any mode of the harness as of
+    # this commit - not dev-tuned, not corrected in response to an observed
+    # run, not previously seen in any form. Do not run these until the
+    # actual frozen held-out report pass; running them earlier for any
+    # reason (even "just to check the harness works") removes their value
+    # as blind evidence and must be logged in evals/CHANGES.md if it
+    # happens.
+    {
+        "id": "fresh-clean-c", "split": "held-out", "kind": "solid", "color": (55, 175, 205),
+        "declared_width_in": 2.5, "declared_height_in": 2.5, "intent": "border",
+        "image_width_px": 850, "image_height_px": 850,
+        "customer_request": "Please check this before printing.",
+        "artwork_is_trim_only": None,
+        "expected_artwork_status": "RESOLVED", "expected_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+        "reserved_for_frozen_report": True,
+        "notes": "Fresh, never-run held-out fixture: clean border-intent artwork, no blockers.",
+    },
+    {
+        "id": "fresh-missing-bleed-c", "split": "held-out", "kind": "solid", "color": (205, 130, 60),
+        "declared_width_in": 3.0, "declared_height_in": 3.0, "intent": "full_bleed",
+        "image_width_px": 900, "image_height_px": 900,
+        "customer_request": "Is this ready to print?",
+        "artwork_is_trim_only": True,
+        "expected_artwork_status": "RESOLVED", "expected_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+        "expect_repair": True, "expect_repair_status": "REPAIRED",
+        "reserved_for_frozen_report": True,
+        "notes": "Fresh, never-run held-out fixture: repair-eligible (uniform edge, trim confirmed, zero margin).",
+    },
+    {
+        "id": "fresh-textured-edge-c", "split": "held-out", "kind": "textured", "color": (100, 140, 190),
+        "declared_width_in": 3.0, "declared_height_in": 3.0, "intent": "full_bleed",
+        "image_width_px": 900, "image_height_px": 900,
+        "customer_request": "Is this ready to print?",
+        "artwork_is_trim_only": True,
+        "expected_artwork_status": "NEEDS_REVIEW", "expected_proof_status": "NOT_PREPARED",
+        "expect_repair": True, "expect_repair_status": "REJECTED", "unsafe_reason_substring": "not a uniform color",
+        "reserved_for_frozen_report": True,
+        "notes": "Fresh, never-run held-out fixture: textured (non-uniform) edge, repair-ineligible.",
+    },
+    {
+        "id": "fresh-lowres-c", "split": "held-out", "kind": "solid", "color": (150, 90, 170),
+        "declared_width_in": 3.0, "declared_height_in": 3.0, "intent": "border",
+        "image_width_px": 650, "image_height_px": 650,
+        "customer_request": "Quick check please.",
+        "artwork_is_trim_only": None,
+        "expected_artwork_status": "NEEDS_REVIEW", "expected_proof_status": "NOT_PREPARED",
+        "reserved_for_frozen_report": True,
+        "notes": "Fresh, never-run held-out fixture: below-300-PPI escalation case, border intent.",
+    },
 ]
 
 
@@ -429,8 +483,9 @@ def _base_manifest_fields(design: dict) -> dict:
     fields = {}
     for key in (
         "customer_request", "artwork_is_trim_only", "scripted_clarification_reply",
-        "expected_artwork_status", "expected_proof_status", "expect_repair",
+        "expected_artwork_status", "expected_proof_status", "expect_repair", "repair_allowed",
         "expect_repair_status", "unsafe_reason_substring", "trim_width_px", "trim_height_px", "notes",
+        "reserved_for_frozen_report",
     ):
         if key in design:
             fields[key] = design[key]

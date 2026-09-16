@@ -40,7 +40,12 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 			"widthPx":     &graphql.Field{Type: graphql.Int},
 			"heightPx":    &graphql.Field{Type: graphql.Int},
 			"sha256":      &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
-			"createdAt":   &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			// storageKey: an internal storage-backend key, not a secret on
+			// its own (no auth gap beyond what already exists - point 26) -
+			// exposed so the eval harness can independently re-read stored
+			// bytes and verify them, rather than trusting DB metadata alone.
+			"storageKey": &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"createdAt":  &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
 		},
 	})
 

@@ -64,6 +64,31 @@ services:
       image-python:
         condition: service_started
 
+  # A worker instance with NO provider key configured (no env_file), so
+  # w.Agent is genuinely nil - not "a worker that happens not to be asked
+  # to use the agent," but one where agent_decide is never even enqueued
+  # (worker.runInspect's enqueueAgentDecision is w.Agent != nil && ...).
+  # Used only for the Day 5 eval harness's baseline/scripted comparison
+  # runs (see evals/scripts/run_eval.py) - never started by a plain
+  # `docker compose up` (profile-gated), and never run at the same time as
+  # the real `worker` service against the same order set.
+  worker-baseline:
+    build:
+      context: ../services/api-go
+    command: ["/app/worker"]
+    profiles: ["baseline"]
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/artwork_agent?sslmode=disable
+      IMAGE_SERVICE_URL: http://image-python:8081
+      STORAGE_LOCAL_DIR: /data/artifacts
+    volumes:
+      - artifacts:/data/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      image-python:
+        condition: service_started
+
   web:
     build:
       context: ../web

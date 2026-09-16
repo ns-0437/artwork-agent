@@ -72,6 +72,7 @@ func assetToMap(a *store.Asset) map[string]interface{} {
 		"widthPx":     a.WidthPx,
 		"heightPx":    a.HeightPx,
 		"sha256":      a.SHA256,
+		"storageKey":  a.StorageKey,
 		"createdAt":   fmtTime(a.CreatedAt),
 	}
 }
