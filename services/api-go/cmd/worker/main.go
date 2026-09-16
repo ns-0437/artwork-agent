@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 
 	"github.com/google/uuid"
@@ -46,6 +47,22 @@ func main() {
 		PyImage: py,
 		Agent:   buildAgentProvider(),
 	}
+	// cmd/worker is otherwise a plain poll loop with no HTTP surface, but
+	// Cloud Run (see infra/gcp/worker-service.yaml) needs some port
+	// listening to consider a revision healthy - this exists for that,
+	// not for any real traffic.
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/healthz", func(rw http.ResponseWriter, r *http.Request) {
+			rw.WriteHeader(http.StatusOK)
+		})
+		addr := ":" + envOr("PORT", "8082")
+		log.Printf("worker healthz listening on %s", addr)
+		if err := http.ListenAndServe(addr, mux); err != nil {
+			log.Fatalf("healthz server failed: %v", err)
+		}
+	}()
+
 	log.Printf("starting worker %s (agent provider: %v)", w.ID, w.Agent != nil)
 	w.Run(ctx)
 }

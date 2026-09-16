@@ -23,16 +23,19 @@ spec:
   template:
     metadata:
       annotations:
-        run.googleapis.com/cloudsql-instances: PROJECT_ID:REGION:artwork-agent-db
+        # Postgres is a free-tier hosted instance (Neon), reached over the
+        # public internet via DATABASE_URL below - no Cloud SQL, so no
+        # cloudsql-instances annotation/proxy sidecar here.
         autoscaling.knative.dev/minScale: "1"
         autoscaling.knative.dev/maxScale: "1" # exactly one worker - see CLAUDE.md on lease-based single-claim, not on running N of these
     spec:
       containers:
-        - image: REGION-docker.pkg.dev/PROJECT_ID/artwork-agent/worker:latest
-          # cmd/worker has no HTTP server; Cloud Run still requires SOME
-          # port to consider the revision healthy - a trivial container
-          # entrypoint wrapper or startup probe override is needed here in
-          # practice. Flagged rather than worked around silently.
+        - image: asia-south1-docker.pkg.dev/artwork-agent-demo/artwork-agent/api-go:latest
+          # The image's default CMD is /app/server (see services/api-go/Dockerfile) -
+          # this override is what actually runs cmd/worker instead.
+          command: ["/app/worker"]
+          ports:
+            - containerPort: 8082 # matches cmd/worker's healthz listener; Cloud Run needs a probed port
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -42,9 +45,9 @@ spec:
             - name: STORAGE_BACKEND
               value: gcs
             - name: GCS_BUCKET
-              value: PROJECT_ID-artwork-agent-artifacts
+              value: artwork-agent-demo-artifacts
             - name: IMAGE_SERVICE_URL
-              value: https://artwork-agent-image-python-internal.a.run.app
+              value: https://artwork-agent-image-python-619767309039.asia-south1.run.app
             - name: GROQ_API_KEY
               valueFrom:
                 secretKeyRef:

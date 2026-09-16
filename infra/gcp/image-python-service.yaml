@@ -13,7 +13,7 @@ spec:
   template:
     spec:
       containers:
-        - image: REGION-docker.pkg.dev/PROJECT_ID/artwork-agent/image-python:latest
+        - image: asia-south1-docker.pkg.dev/artwork-agent-demo/artwork-agent/image-python:latest
           ports:
             - containerPort: 8081
           resources:

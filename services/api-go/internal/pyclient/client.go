@@ -12,6 +12,8 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
+	"os"
 	"strconv"
 	"time"
 )
@@ -192,6 +194,9 @@ func (c *Client) postMultipart(path string, imageBytes []byte, filename string, 
 		return nil, err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
+	if tok := identityToken(c.baseURL); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -207,4 +212,37 @@ func (c *Client) postMultipart(path string, imageBytes []byte, filename string, 
 		return nil, fmt.Errorf("image service returned %d: %s", resp.StatusCode, string(respBody))
 	}
 	return respBody, nil
+}
+
+// identityToken fetches a Google-signed OIDC identity token scoped to
+// audience from the GCE/Cloud Run metadata server, for calling
+// image-python's Cloud Run service (deployed IAM-authenticated, not
+// public - see infra/gcp/image-python-service.yaml). K_SERVICE is set by
+// Cloud Run on every revision, so this is a no-op (and no metadata server
+// call) under local docker-compose, where image-python has no auth at all.
+var identityHTTPClient = &http.Client{Timeout: 2 * time.Second}
+
+func identityToken(audience string) string {
+	if os.Getenv("K_SERVICE") == "" {
+		return ""
+	}
+	metadataURL := "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=" + url.QueryEscape(audience)
+	req, err := http.NewRequest(http.MethodGet, metadataURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Metadata-Flavor", "Google")
+	resp, err := identityHTTPClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	tok, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	return string(tok)
 }
