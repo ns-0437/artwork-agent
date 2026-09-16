@@ -17,7 +17,7 @@ services/api-go/
   internal/store/                 Postgres access - orders, jobs (claim/complete), assets, findings, clarifications, repairs
   internal/storage/               Storage interface + LocalDisk (dev) + GCS (Day 5 deploy) implementations, NewFromEnv factory
   internal/upload/                Signed local upload ticket issuance + redemption
-  internal/worker/                Poll loop, dispatch by job_type (inspect/repair/agent_decide), decideArtworkStatus, runAgentDecision (bounded loop, durable job-queue based)
+  internal/worker/                Poll loop, dispatch by job_type (inspect/repair/agent_decide/prepare_proof), decideArtworkStatus, runAgentDecision (bounded loop, durable job-queue based)
   internal/pyclient/              HTTP client for services/image-python
   internal/agent/                 Provider interface (adapter.go) + groq_adapter.go (Day 4's actual provider - see point 14) + errors.go (transient/permanent error classification)
 services/image-python/
@@ -29,11 +29,21 @@ services/image-python/
 db/migrations/                    Postgres schema (orders, jobs, assets, findings, clarifications, repairs, tool_events)
 evals/
   fixtures/dev/, fixtures/held-out/  Seed images, split by design before variants
-  fixtures/manifest.json          Per-fixture declared size/intent/notes
-  scripts/generate_fixtures.py    Regenerates the seed set
-  scripts/smoke_test.sh           Manual end-to-end check across all seed fixtures (not the Day 5 eval harness)
-infra/                            docker-compose.yml (local) + Cloud Run/GCP deploy config (Day 5)
-docs/                             Architecture, evaluation results, case study, demo notes
+  fixtures/manifest.json          Per-fixture declared size/intent/notes/expected outcomes
+  scripts/generate_fixtures.py    Regenerates the fixture set from the DESIGNS list
+  scripts/smoke_test.sh           Manual end-to-end check across a handful of fixtures (not the Day 5 eval harness)
+  scripts/run_eval.py             Day 5 eval harness - agent/baseline/scripted modes, storage re-verification, timeout/failure grading
+  scripts/run_baseline_and_scripted.sh  Sequences the worker-baseline swap for --mode baseline/scripted safely
+  results/                        Frozen per-mode run outputs (eval_results_*.json) - see CLAUDE.md points 49-52
+  CHANGES.md                      Fixture-expectation change log - which corrections were pre-observation vs. behavior-observed, and the held-out freeze/reserve record
+infra/
+  docker-compose.yml              Local dev stack, incl. the profile-gated worker-baseline service (point 50)
+  gcp/                             Cloud Run service YAML + GCS setup README - prepared, not executed against a live project (point 17)
+docs/
+  architecture.md                 Day-by-day technical build log
+  case_study.md                   Full project narrative and evaluation writeup - the Day 6 case study
+  demo_script.md                  Three-minute demo script, rehearsed live before being written
+  build-brief.pdf                 Spec of record
 ```
 
 ## Points to remember
