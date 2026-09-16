@@ -1,0 +1,472 @@
+[
+  {
+    "id": "clean-a",
+    "split": "dev",
+    "order_id": "05682c4b-97cc-4066-8ed7-30255c204c61",
+    "elapsed_s": 14.5,
+    "final_artwork_status": "BLOCKED",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "lowres-a",
+    "split": "dev",
+    "order_id": "e7eb293f-3a02-4062-bdd8-9e121f39eba7",
+    "elapsed_s": 12.48,
+    "final_artwork_status": "BLOCKED",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "missing-bleed-a",
+    "split": "dev",
+    "order_id": "7c65b636-ec87-4c90-b133-1b12bd0134fa",
+    "elapsed_s": 21.72,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [
+      {
+        "diagnosis": "{\"margin_px\": 19, \"trim_x_px\": 19, \"trim_y_px\": 19, \"edge_color\": [150, 90, 200], \"effective_ppi\": 300, \"trim_width_px\": 900, \"trim_height_px\": 900}",
+        "reason": null,
+        "status": "REPAIRED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "gradient-edge-a",
+    "split": "dev",
+    "order_id": "05916a03-8324-4fb7-8da6-c757969e5ac1",
+    "elapsed_s": 18.66,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [
+      {
+        "diagnosis": null,
+        "reason": "edge band is not a uniform color - gradient, texture, or foreground content touches the boundary",
+        "status": "REJECTED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "clean-border-a",
+    "split": "dev",
+    "order_id": "92435c77-5705-48b8-bc96-d9dc058f9fe4",
+    "elapsed_s": 15.45,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "missing-bleed-clarify-a",
+    "split": "dev",
+    "order_id": "8bd91bc2-0b8f-4a8c-939c-8a2c6d3565ce",
+    "elapsed_s": 25.55,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [
+      {
+        "diagnosis": "{\"margin_px\": 19, \"trim_x_px\": 19, \"trim_y_px\": 19, \"edge_color\": [90, 150, 220], \"effective_ppi\": 300, \"trim_width_px\": 900, \"trim_height_px\": 900}",
+        "reason": null,
+        "status": "REPAIRED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "textured-edge-a",
+    "split": "dev",
+    "order_id": "b3cd8003-048a-452d-b5ed-277301cd33bd",
+    "elapsed_s": 18.45,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [
+      {
+        "diagnosis": null,
+        "reason": "edge band is not a uniform color - gradient, texture, or foreground content touches the boundary",
+        "status": "REJECTED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "object-touching-edge-a",
+    "split": "dev",
+    "order_id": "e06b31bd-f270-4368-ac7e-d1bc8f851270",
+    "elapsed_s": 18.66,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [
+      {
+        "diagnosis": null,
+        "reason": "edge band is not a uniform color - gradient, texture, or foreground content touches the boundary",
+        "status": "REJECTED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "transparency-edge-a",
+    "split": "dev",
+    "order_id": "96b53287-8ed5-4a7a-bb42-1fc904a1ec10",
+    "elapsed_s": 18.58,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [
+      {
+        "diagnosis": null,
+        "reason": "image has transparency - repair requires a fully opaque image",
+        "status": "REJECTED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "rgba-opaque-a",
+    "split": "dev",
+    "order_id": "91c7a594-102b-4276-9837-b89f20502ee3",
+    "elapsed_s": 21.8,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [
+      {
+        "diagnosis": "{\"margin_px\": 19, \"trim_x_px\": 19, \"trim_y_px\": 19, \"edge_color\": [210, 160, 40], \"effective_ppi\": 300, \"trim_width_px\": 900, \"trim_height_px\": 900}",
+        "reason": null,
+        "status": "REPAIRED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "grayscale-a",
+    "split": "dev",
+    "order_id": "ffb0453f-7401-4eef-836a-6b18c7b3e9d5",
+    "elapsed_s": 15.53,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "cmyk-a",
+    "split": "dev",
+    "order_id": "a39494fc-a7d3-4a7a-84cc-0988e8465ca9",
+    "elapsed_s": 15.38,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "mixed-issues-a",
+    "split": "dev",
+    "order_id": "0c7cb278-68c4-4f5d-bbef-13cf7793da54",
+    "elapsed_s": 18.66,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [
+      {
+        "diagnosis": null,
+        "reason": "edge band is not a uniform color - gradient, texture, or foreground content touches the boundary",
+        "status": "REJECTED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "ppi-boundary-dev-299",
+    "split": "dev",
+    "order_id": "575a80a8-fa46-4628-a6b1-a5d6a94fa1c1",
+    "elapsed_s": 12.45,
+    "final_artwork_status": "BLOCKED",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "ppi-boundary-dev-300",
+    "split": "dev",
+    "order_id": "99bdf437-6e0d-43e0-9803-1f946c781f75",
+    "elapsed_s": 15.41,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "ppi-boundary-dev-301",
+    "split": "dev",
+    "order_id": "6d1c8b22-7427-4207-96c0-2191d22c6d07",
+    "elapsed_s": 15.34,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "clean-b",
+    "split": "held-out",
+    "order_id": "a557272d-245d-4883-9f47-b06bc8f12ef5",
+    "elapsed_s": 15.55,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "rgb-noprofile-a",
+    "split": "held-out",
+    "order_id": "5969c748-1879-49ca-a417-4990e3163e37",
+    "elapsed_s": 15.41,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "border-a",
+    "split": "held-out",
+    "order_id": "f8b79282-fb38-4b15-b78e-efc24d69b88a",
+    "elapsed_s": 15.47,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "clean-full-bleed-b",
+    "split": "held-out",
+    "order_id": "233e3247-ae3c-448a-bbc8-e5c35e2ccf9a",
+    "elapsed_s": 14.44,
+    "final_artwork_status": "BLOCKED",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "lowres-b",
+    "split": "held-out",
+    "order_id": "616875a5-6690-45e4-b1d1-fe8161dd5099",
+    "elapsed_s": 12.38,
+    "final_artwork_status": "BLOCKED",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "missing-bleed-b",
+    "split": "held-out",
+    "order_id": "adaff066-f784-4f53-8029-24c86147f1b9",
+    "elapsed_s": 21.58,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [
+      {
+        "diagnosis": "{\"margin_px\": 19, \"trim_x_px\": 19, \"trim_y_px\": 19, \"edge_color\": [160, 100, 210], \"effective_ppi\": 300, \"trim_width_px\": 900, \"trim_height_px\": 900}",
+        "reason": null,
+        "status": "REPAIRED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "missing-bleed-clarify-b",
+    "split": "held-out",
+    "order_id": "27261e76-f1a9-4bef-841c-10e1251398d0",
+    "elapsed_s": 25.92,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [
+      {
+        "diagnosis": "{\"margin_px\": 19, \"trim_x_px\": 19, \"trim_y_px\": 19, \"edge_color\": [100, 160, 230], \"effective_ppi\": 300, \"trim_width_px\": 900, \"trim_height_px\": 900}",
+        "reason": null,
+        "status": "REPAIRED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "gradient-edge-b",
+    "split": "held-out",
+    "order_id": "6272a7bb-d178-46c3-a8ee-180f13a1fb28",
+    "elapsed_s": 18.72,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [
+      {
+        "diagnosis": null,
+        "reason": "edge band is not a uniform color - gradient, texture, or foreground content touches the boundary",
+        "status": "REJECTED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "textured-edge-b",
+    "split": "held-out",
+    "order_id": "4d68c960-d893-4a3b-9313-ed535ca46f26",
+    "elapsed_s": 18.52,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [
+      {
+        "diagnosis": null,
+        "reason": "edge band is not a uniform color - gradient, texture, or foreground content touches the boundary",
+        "status": "REJECTED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "object-touching-edge-b",
+    "split": "held-out",
+    "order_id": "71ca8717-c82b-4736-9058-7d58bc020e6f",
+    "elapsed_s": 18.75,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [
+      {
+        "diagnosis": null,
+        "reason": "edge band is not a uniform color - gradient, texture, or foreground content touches the boundary",
+        "status": "REJECTED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "transparency-edge-b",
+    "split": "held-out",
+    "order_id": "bdc43af7-f8d9-4996-a3e1-728a8a90dca0",
+    "elapsed_s": 18.61,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [
+      {
+        "diagnosis": null,
+        "reason": "image has transparency - repair requires a fully opaque image",
+        "status": "REJECTED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "rgba-opaque-b",
+    "split": "held-out",
+    "order_id": "63f49fb2-affd-4ecf-a8b9-2364af7535e5",
+    "elapsed_s": 21.5,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [
+      {
+        "diagnosis": "{\"margin_px\": 19, \"trim_x_px\": 19, \"trim_y_px\": 19, \"edge_color\": [220, 170, 50], \"effective_ppi\": 300, \"trim_width_px\": 900, \"trim_height_px\": 900}",
+        "reason": null,
+        "status": "REPAIRED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "grayscale-b",
+    "split": "held-out",
+    "order_id": "de5c4eb1-c9f7-4ebf-b59d-456876845302",
+    "elapsed_s": 15.61,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "cmyk-b",
+    "split": "held-out",
+    "order_id": "d7960952-897a-4fff-9b7b-b051b3504913",
+    "elapsed_s": 15.51,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "mixed-issues-b",
+    "split": "held-out",
+    "order_id": "01921e07-98c1-4a54-8a80-6c273e7865eb",
+    "elapsed_s": 18.62,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [
+      {
+        "diagnosis": null,
+        "reason": "edge band is not a uniform color - gradient, texture, or foreground content touches the boundary",
+        "status": "REJECTED"
+      }
+    ],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "ppi-boundary-held-out-299",
+    "split": "held-out",
+    "order_id": "8fc42781-3f5f-4b9c-953e-d9893120b60f",
+    "elapsed_s": 12.39,
+    "final_artwork_status": "BLOCKED",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": false
+  },
+  {
+    "id": "ppi-boundary-held-out-300",
+    "split": "held-out",
+    "order_id": "03dcd707-8660-4b82-85e9-e570f97c2c4a",
+    "elapsed_s": 15.5,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  },
+  {
+    "id": "ppi-boundary-held-out-301",
+    "split": "held-out",
+    "order_id": "5b1ea387-92d1-4a09-9f54-040a9ca68d4b",
+    "elapsed_s": 15.38,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "timed_out": false,
+    "reached_resolved": true
+  }
+]

@@ -123,6 +123,40 @@ A further review pass found four gaps in edge cases the first hardening pass had
 3. **Job leases too short to cover the agent's own retries.** Three provider attempts (one call + two retries) at the adapter's prior 20s HTTP timeout could take up to 60s, exceeding the 30s job lease - not corrupting anything (every completion is still gated on worker/lease ownership) but wasting real provider calls and budget when a lease expires mid-call and a second worker reclaims the same job. Fixed with a `context.WithTimeout`-bounded deadline (20s, comfortably inside the lease) threaded through the whole retry sequence via an extracted, independently unit-tested `decideWithBoundedRetries` function - a slow or hanging provider can now never hold a job past its lease, regardless of retry count. Covered by a Go unit test using a fake provider that "takes" 5 seconds against a 50ms test deadline, confirming the call returns promptly rather than blocking for the fake's full delay.
 4. **The earlier test only proved lease reclamation, not a crash after an artifact write - and neither test involved an actual killed process; both reproduce the DB/storage STATE a crash would leave, by hand.** Hand-setting an expired lease (the earlier test) never exercises a worker that already wrote to `internal/storage` - which happens BEFORE the database transaction, since storage isn't transactional with Postgres - and then crashed before that transaction committed. Reproduced directly this time: got the real repaired/preview bytes from `services/image-python`'s `/repair` endpoint, manually wrote them into the storage volume at their real content-addressed paths (reproducing "storage write already succeeded"), then reproduced the crash state (a `repair` job left `RUNNING` with an expired lease and no corresponding DB rows - no process was sent a kill signal to get here). A fresh worker reclaimed it, reprocessed the repair FROM SCRATCH (calling `/repair` again, producing the same bytes deterministically), and its own storage write recognized the content-addressed path already existed - a safe no-op - before committing exactly ONE `repairs` row and ONE set of `repaired`/`preview`/`proof` assets (hash-verified), reaching `RESOLVED`/`AWAITING_CUSTOMER_APPROVAL` rather than getting stuck. An actual process-kill test (verifying behavior under a real SIGKILL mid-syscall, e.g. a partially-written file) has not been done.
 
+## Day 5: evaluation harness and first results
+
+**Fixture set:** 34 fixtures (16 dev, 18 held-out) in `evals/fixtures/manifest.json`, covering clean art, the exact 300 PPI boundary (299/300/301, isolated from bleed noise via border intent), color-profile variants (RGB with/without ICC, grayscale, CMYK), the repair-eligible and clarification-round-trip paths, four distinct repair-ineligible reasons (gradient, texture, foreground object, transparency), an RGBA-but-opaque repair-eligible case, and a mixed-issue case (low resolution AND missing bleed at once). Four additional held-out fixtures are reserved and have never been run - see `evals/CHANGES.md`.
+
+**Harness (`evals/scripts/run_eval.py`):** drives every fixture through the real GraphQL API end to end - no mocking. Three modes:
+
+- `--mode agent` - the real stack, Groq enabled.
+- `--mode baseline` - a GENUINELY agent-disabled worker (`worker-baseline`, no provider key configured at all, so `w.Agent` is actually `nil` and `agent_decide` is never enqueued) - descriptive only, no further action ever taken past the first inspection.
+- `--mode scripted` - the same agent-disabled worker, but the harness itself drives the same tool calls (`confirmTrim`/`answerClarification`/`requestRepair`) and the same scripted customer replies a non-AI scripted workflow would use, deterministically. This is the brief's "compare against rules plus scripted clarification/report templates," not just "no agent at all."
+
+Grading re-reads actual bytes from the storage backend (via the GraphQL-exposed `Asset.storageKey`) rather than trusting database metadata: the original asset's hash is re-verified against the source file, a repaired canvas's trim region is independently pixel-compared against the original (outside the system's own `verify_repair` check), and every proof asset is confirmed to actually decode as an image. A run that times out is failed outright regardless of what the last snapshot showed; any unexpected `FAILED` job, or a repair attempted on a fixture nothing about it calls for, fails the fixture.
+
+### Results (first frozen pass, this fixture set)
+
+| Mode | n | RESOLVED | NEEDS_REVIEW | BLOCKED | avg latency |
+|---|---|---|---|---|---|
+| agent (Groq) | 34 | 18 | 16 | 0 | 17.9s |
+| baseline (rules only, no agent) | 34 | 12 | 14 | 8 | 14.5s |
+| scripted (rules + deterministic script, no LLM) | 34 | 18 | 10 | 6 | 17.3s |
+
+Agent: **34/34 passed** (16/16 dev, 18/18 held-out), 0 timed out, 0 falsely-resolved held-out cases, 0 unexpected job failures. Every one of the 6 cases that reached `RESOLVED` via repair had its trim region independently pixel-verified against the original (`repair_trim_pixels_identical: true`); every one of the 18 `RESOLVED` cases had its proof asset independently confirmed to open as a valid image; every one of the 34 cases had its original asset's stored bytes re-read and re-hashed against the uploaded file.
+
+**What this shows about the agent's value:**
+- **Rules alone leave 8 cases silently `BLOCKED` forever** (anything needing trim confirmation or an eligible repair, with nothing ever proposing one) - having *either* the agent or a script drive the same tool calls resolves 6 more cases (18 vs. 12).
+- **Agent and scripted resolve the identical set of cases** (18/18 match, per-fixture) - for this fixture set, the LLM's decisions never did anything a hand-written script wouldn't have. The agent's incremental value here is not "smarter outcomes" but **escalation the script doesn't have**: 6 fixtures (`clean-a`, `lowres-a`, `clean-full-bleed-b`, `lowres-b`, `ppi-boundary-*-299` ×2) end at `NEEDS_REVIEW` with the agent but `BLOCKED` with the script, because the script (as built) only knows how to *act* (confirm trim, request repair) - it has no "give up and flag this for a human, with a reason" behavior. The agent's `escalate` action is what actually converts a silently-stuck case into an actioned one with an audit trail.
+- **`mixed-issues-a`/`-b`'s outcome is not directly comparable to a fixed expectation** - see `evals/CHANGES.md`: the model's own choice (attempt-and-reject a repair vs. escalate directly) varies run to run and was the basis for relaxing that fixture's assertion, so `mixed-issues-b`'s result here is not blind held-out evidence, only a passing regression check.
+
+**Honest boundaries on this pass:**
+- This is 34 fixtures generated by this same project, not an independent test set - "release targets, not results," per the brief.
+- Four held-out fixtures are deliberately withheld from every run above (`reserved_for_frozen_report: true`) for a genuinely blind pass later.
+- The crash-recovery tests behind this system's durability claims are simulated crash *states*, not an actual killed process (CLAUDE.md points 21/48) - a real process-kill test remains undone.
+- The GCS storage backend (`internal/storage/gcs.go`) builds and passes `go test` but has not been run against a live bucket.
+- Cost-per-case and a Grok/Claude comparison are not measured - out of scope for this pass given the brief's own "defer this comparison before compromising reliability."
+
 ## Known gaps (tracked, not yet fixed)
 
 - **No authentication or ownership checks.** `ownerId` on an order is a free-text field the client supplies - nothing verifies the caller actually owns the order they're mutating. Dev ports are bound to `127.0.0.1` specifically because of this gap (see CLAUDE.md point 26); this needs closing before any deployment beyond a local demo.
