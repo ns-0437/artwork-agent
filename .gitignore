@@ -4,8 +4,17 @@ dist/
 build/
 __pycache__/
 *.pyc
+.pytest_cache/
 .venv/
 venv/
 *.db
 *.sqlite
 .DS_Store
+
+# LocalDisk's default dev storage dir (internal/storage - see .env.example's
+# STORAGE_LOCAL_DIR) when running services.api-go outside Docker.
+data/artifacts/
+
+# IDE-local settings, not project config.
+.vscode/
+.idea/
