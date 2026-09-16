@@ -155,19 +155,26 @@ type FindingInput struct {
 
 // CompleteInspection commits the asset's decoded dimensions, the job's
 // result and SUCCEEDED status, the findings from each check, the order's
-// state advance, and - when enqueueAgentDecision is true - a follow-up
-// agent_decide job, ALL in ONE transaction. This is deliberately not
+// state advance, and - when enqueueAgentDecision or enqueuePrepareProof is
+// true - a follow-up job, ALL in ONE transaction. This is deliberately not
 // several separate calls: a SUCCEEDED status must never be reachable
 // without its result and findings actually being stored, the order must
 // never move forward on behalf of a worker that has lost its lease or whose
 // view of the case (expectedCaseVersion) is stale, and (the reason this
 // enqueues its own follow-up job rather than leaving that to the caller) a
-// crash between "inspection committed" and "agent decision invoked" must
-// never leave the case stuck with no queued work to resume it.
+// crash between "inspection committed" and "next step invoked" must never
+// leave the case stuck with no queued work to resume it.
 //
-// The follow-up job is bound via agent_source_job_id to jobID itself (THIS
-// inspection), so whatever reads it later acts on exactly these findings -
-// never "the latest finding per check across the order's entire history".
+// The two follow-up flags are mutually exclusive by construction (the
+// caller computes enqueueAgentDecision only when artworkStatus != RESOLVED,
+// and enqueuePrepareProof only when it IS RESOLVED) but are passed
+// separately rather than as one enum, matching CompleteAgentDecision's own
+// job-type-specific inserts.
+//
+// The agent_decide follow-up is bound via agent_source_job_id to jobID
+// itself (THIS inspection), so whatever reads it later acts on exactly
+// these findings - never "the latest finding per check across the order's
+// entire history".
 //
 // Returns ok=false (with a nil error) if either guard fails - the whole
 // transaction rolls back, including the asset update, findings inserts, and
@@ -180,7 +187,7 @@ func (s *Store) CompleteInspection(
 	result InspectionResult,
 	findings []FindingInput,
 	artworkStatus, proofStatus string,
-	enqueueAgentDecision bool,
+	enqueueAgentDecision, enqueuePrepareProof bool,
 ) (bool, error) {
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
@@ -241,6 +248,16 @@ func (s *Store) CompleteInspection(
 			VALUES ($1, 'agent_decide', $2, $3, $4)
 			ON CONFLICT (order_id, job_type) WHERE status IN ('QUEUED', 'RUNNING') DO NOTHING
 		`, orderID, assetID, expectedCaseVersion+1, jobID); err != nil {
+			return false, err
+		}
+	}
+
+	if enqueuePrepareProof {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO jobs (order_id, job_type, input_asset_id, input_case_version)
+			VALUES ($1, 'prepare_proof', $2, $3)
+			ON CONFLICT (order_id, job_type) WHERE status IN ('QUEUED', 'RUNNING') DO NOTHING
+		`, orderID, assetID, expectedCaseVersion+1); err != nil {
 			return false, err
 		}
 	}

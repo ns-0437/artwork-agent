@@ -75,6 +75,8 @@ func (w *Worker) tick(ctx context.Context) error {
 		w.runRepair(ctx, job)
 	case "agent_decide":
 		w.runAgentDecision(ctx, job)
+	case "prepare_proof":
+		w.runPrepareProof(ctx, job)
 	default:
 		w.fail(ctx, job, "unknown job type: "+job.JobType)
 	}
@@ -165,25 +167,27 @@ func (w *Worker) runInspect(ctx context.Context, job *store.Job) {
 	}
 	artworkStatus, proofStatus := decideArtworkStatus(findings, intent)
 
-	// Whether to enqueue a follow-up agent_decide job is decided HERE and
-	// passed into the SAME transaction as the commit below - a separate
-	// "commit, then enqueue" step (the previous design) left a durability
-	// gap: a crash between the two committed the inspection with no queued
-	// work to resume it. RESOLVED needs no further action; with no provider
-	// configured, there's nothing useful an agent_decide job could do either.
+	// Whether to enqueue a follow-up job is decided HERE and passed into the
+	// SAME transaction as the commit below - a separate "commit, then
+	// enqueue" step (the previous design) left a durability gap: a crash
+	// between the two committed the inspection with no queued work to
+	// resume it. Exactly one of the two follow-ups applies: RESOLVED means
+	// the loop's last remaining step is preparing a proof; anything else
+	// (with a provider configured) means the agent needs to look at it.
 	enqueueAgentDecision := w.Agent != nil && artworkStatus != "RESOLVED"
+	enqueuePrepareProof := artworkStatus == "RESOLVED"
 
 	// The asset's dimensions, the job's result, every finding, the order's
-	// state advance, and (if applicable) the follow-up agent_decide job all
-	// commit together in one transaction, gated on this worker still holding
-	// a valid lease and the case not having moved on since this job was
-	// bound to job.InputCaseVersion. See store.CompleteInspection.
+	// state advance, and (if applicable) the follow-up job all commit
+	// together in one transaction, gated on this worker still holding a
+	// valid lease and the case not having moved on since this job was bound
+	// to job.InputCaseVersion. See store.CompleteInspection.
 	ok, err := w.Store.CompleteInspection(ctx, job.ID, w.ID, *job.InputAssetID, job.InputCaseVersion, store.InspectionResult{
 		WidthPx:  inspected.WidthPx,
 		HeightPx: inspected.HeightPx,
 		Mode:     inspected.Mode,
 		Format:   inspected.Format,
-	}, findings, artworkStatus, proofStatus, enqueueAgentDecision)
+	}, findings, artworkStatus, proofStatus, enqueueAgentDecision, enqueuePrepareProof)
 	if err != nil {
 		log.Printf("job %s: failed to commit inspection result: %v", job.ID, err)
 		return
@@ -342,7 +346,13 @@ func (w *Worker) runRepair(ctx context.Context, job *store.Job) {
 		Diagnosis:    string(diagnosisJSON),
 	}
 
-	ok, err := w.Store.CompleteRepair(ctx, job.ID, w.ID, job.InputCaseVersion, outcome, findings, artworkStatus, proofStatus)
+	// Same reasoning as runInspect's own enqueuePrepareProof: decided here,
+	// committed in the SAME transaction as the repair result, so a crash
+	// between "repair verified and resolved" and "proof prepared" leaves a
+	// queued job to resume rather than a stalled case.
+	enqueuePrepareProof := artworkStatus == "RESOLVED"
+
+	ok, err := w.Store.CompleteRepair(ctx, job.ID, w.ID, job.InputCaseVersion, outcome, findings, artworkStatus, proofStatus, enqueuePrepareProof)
 	if err != nil {
 		log.Printf("job %s: failed to commit repair result: %v", job.ID, err)
 		return
@@ -363,13 +373,89 @@ func (w *Worker) completeRejectedRepair(ctx context.Context, job *store.Job, ass
 		SourceAssetID: asset.ID,
 		SourceHash:    asset.SHA256,
 	}
-	ok, err := w.Store.CompleteRepair(ctx, job.ID, w.ID, job.InputCaseVersion, outcome, nil, "", "")
+	ok, err := w.Store.CompleteRepair(ctx, job.ID, w.ID, job.InputCaseVersion, outcome, nil, "", "", false)
 	if err != nil {
 		log.Printf("job %s: failed to commit rejected repair: %v", job.ID, err)
 		return
 	}
 	if !ok {
 		w.fail(ctx, job, "lease lost or case_version changed while recording rejected repair")
+	}
+}
+
+// runPrepareProof is loop step 5 of the brief ("Prepare a proof, update the
+// artwork state, and retain the complete audit trail") - the one step that
+// was not implemented through Day 4. It runs as its own durable job (see
+// runInspect/runRepair's enqueuePrepareProof), enqueued atomically in the
+// SAME transaction as the commit that first reached RESOLVED, so a crash
+// between "case resolved" and "proof prepared" leaves a queued job to
+// resume rather than a case stuck at RESOLVED with proof_status stuck at
+// NOT_PREPARED forever.
+func (w *Worker) runPrepareProof(ctx context.Context, job *store.Job) {
+	if job.InputAssetID == nil {
+		w.fail(ctx, job, "job has no bound input asset")
+		return
+	}
+
+	order, err := w.Store.GetOrder(ctx, job.OrderID)
+	if err != nil {
+		w.fail(ctx, job, "failed to look up order: "+err.Error())
+		return
+	}
+	if order == nil {
+		w.fail(ctx, job, "order no longer exists")
+		return
+	}
+
+	asset, err := w.Store.GetAsset(ctx, *job.InputAssetID)
+	if err != nil {
+		w.fail(ctx, job, "failed to look up bound input asset: "+err.Error())
+		return
+	}
+	if asset == nil {
+		w.fail(ctx, job, "bound input asset no longer exists")
+		return
+	}
+
+	data, err := w.Storage.Get(ctx, asset.StorageKey)
+	if err != nil {
+		w.fail(ctx, job, "failed to read artwork from storage: "+err.Error())
+		return
+	}
+
+	rendered, err := w.PyImage.PrepareProof(data, asset.StorageKey, pyclient.ProofInput{
+		OrderID:        job.OrderID,
+		ArtworkVersion: order.ArtworkVersion,
+		CaseVersion:    job.InputCaseVersion,
+	})
+	if err != nil {
+		w.fail(ctx, job, "image service proof rendering failed: "+err.Error())
+		return
+	}
+
+	imageBytes, err := base64.StdEncoding.DecodeString(rendered.ImageBase64)
+	if err != nil {
+		w.fail(ctx, job, "failed to decode rendered proof: "+err.Error())
+		return
+	}
+	storageKey, hash, err := w.Storage.Put(ctx, imageBytes)
+	if err != nil {
+		w.fail(ctx, job, "failed to store proof image: "+err.Error())
+		return
+	}
+
+	ok, err := w.Store.CompleteProofPreparation(ctx, job.ID, w.ID, job.InputCaseVersion, store.ProofAssetInput{
+		StorageKey: storageKey,
+		SHA256:     hash,
+		WidthPx:    rendered.WidthPx,
+		HeightPx:   rendered.HeightPx,
+	})
+	if err != nil {
+		log.Printf("job %s: failed to commit prepared proof: %v", job.ID, err)
+		return
+	}
+	if !ok {
+		w.fail(ctx, job, "lease lost or case_version changed while preparing proof")
 	}
 }
 

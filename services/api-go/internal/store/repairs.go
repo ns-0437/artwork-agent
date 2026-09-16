@@ -93,9 +93,10 @@ type RepairOutcome struct {
 // the same key can never duplicate it), and - only when the repair was
 // eligible and verified - the new 'repaired'/'preview' assets, the order's
 // now-known trim coordinates, fresh findings from the post-repair recheck,
-// and the order's state advance, ALL in one transaction. An ineligible or
-// unverified repair leaves the order at NEEDS_REVIEW and the original
-// completely untouched.
+// the order's state advance, and (when enqueuePrepareProof is true) a
+// follow-up prepare_proof job bound to the new repaired asset, ALL in one
+// transaction. An ineligible or unverified repair leaves the order at
+// NEEDS_REVIEW and the original completely untouched.
 //
 // Returns ok=false (nil error) if the worker's lease is gone, the case
 // moved past expectedCaseVersion, or (defensively) the idempotency key was
@@ -108,6 +109,7 @@ func (s *Store) CompleteRepair(
 	outcome RepairOutcome,
 	findings []FindingInput,
 	artworkStatus, proofStatus string,
+	enqueuePrepareProof bool,
 ) (bool, error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -214,6 +216,16 @@ func (s *Store) CompleteRepair(
 		}
 		if orderTag.RowsAffected() == 0 {
 			return false, nil
+		}
+
+		if enqueuePrepareProof {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO jobs (order_id, job_type, input_asset_id, input_case_version)
+				VALUES ($1, 'prepare_proof', $2, $3)
+				ON CONFLICT (order_id, job_type) WHERE status IN ('QUEUED', 'RUNNING') DO NOTHING
+			`, orderID, *derivedAssetID, expectedCaseVersion+1); err != nil {
+				return false, err
+			}
 		}
 	} else {
 		orderTag, err := tx.Exec(ctx, `

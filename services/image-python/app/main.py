@@ -26,6 +26,7 @@ from app.repair.extend_background import CanvasTooLargeError, extend_background
 from app.repair.geometry import validate_aspect_ratio, validate_declared_size
 from app.repair.preview import render_preview
 from app.repair.verify import verify_repair
+from app.proof.render import render_proof
 
 app = FastAPI(title="artwork-agent image service")
 
@@ -229,4 +230,31 @@ async def repair(
         "effective_ppi": round(effective_ppi, 2),
         "edge_color": edge_color_out,
         "mode": eligibility["mode"],
+    }
+
+
+@app.post("/proof")
+async def proof(
+    file: UploadFile = File(...),
+    order_id: str = Form(...),
+    artwork_version: int = Form(...),
+    case_version: int = Form(...),
+):
+    """Renders a proof from whichever asset api-go says is current (the
+    order's already-resolved artwork - original or repaired) - this endpoint
+    makes no decision about WHEN a proof should be prepared or what state
+    that implies; api-go decides that (only after artwork_status has already
+    reached RESOLVED) and calls this purely to render the artifact."""
+    data = await file.read()
+    image = _decode_upload(data)
+
+    caption = f"PROOF - order {order_id} - artwork v{artwork_version} - case v{case_version} - awaiting customer approval, not released to production"
+    rendered = render_proof(image, caption)
+    buf = io.BytesIO()
+    rendered.save(buf, format="PNG")
+
+    return {
+        "image_base64": base64.b64encode(buf.getvalue()).decode("ascii"),
+        "width_px": rendered.width,
+        "height_px": rendered.height,
     }

@@ -132,6 +132,41 @@ func (c *Client) Repair(imageBytes []byte, filename string, in RepairInput) (*Re
 	return &out, nil
 }
 
+type ProofInput struct {
+	OrderID        string
+	ArtworkVersion int
+	CaseVersion    int
+}
+
+type ProofResult struct {
+	ImageBase64 string `json:"image_base64"`
+	WidthPx     int    `json:"width_px"`
+	HeightPx    int    `json:"height_px"`
+}
+
+// PrepareProof renders the customer-facing proof from whichever asset the
+// caller passes as imageBytes (api-go's current asset, already RESOLVED) -
+// this call makes no decision about when a proof is warranted, only renders
+// one on request.
+func (c *Client) PrepareProof(imageBytes []byte, filename string, in ProofInput) (*ProofResult, error) {
+	fields := map[string]string{
+		"order_id":        in.OrderID,
+		"artwork_version": strconv.Itoa(in.ArtworkVersion),
+		"case_version":    strconv.Itoa(in.CaseVersion),
+	}
+
+	body, err := c.postMultipart("/proof", imageBytes, filename, fields)
+	if err != nil {
+		return nil, err
+	}
+
+	var out ProofResult
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) postMultipart(path string, imageBytes []byte, filename string, fields map[string]string) ([]byte, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
