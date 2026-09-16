@@ -83,12 +83,33 @@ def read_storage_object(storage_key: str) -> bytes:
 ORDER_FIELDS = """
   id caseVersion artworkStatus proofStatus
   findings { checkName result evidence }
-  jobs { id jobType status lastError }
+  jobs { id jobType status lastError result }
   clarifications { id question answer answeredAt invalidatedAt }
   repairs { status reason diagnosis }
   assets { id kind sha256 storageKey widthPx heightPx }
   toolEvents { eventType detail }
 """
+
+
+def provider_error_agent_decide_jobs(order: dict) -> list[dict]:
+    """agent_decide jobs where the worker never actually got a usable
+    response from the model - a failed API call, not the model choosing to
+    escalate (see worker.runAgentDecision's escalate() call for the
+    decideErr!=nil case, persisted as "provider error (<category>) ->
+    escalated for review"). A fixture that hit this wasn't really
+    exercising the agent at all, so it shouldn't be graded as if the model
+    made a genuine decision."""
+    hits = []
+    for j in order["jobs"]:
+        if j["jobType"] != "agent_decide" or not j.get("result"):
+            continue
+        try:
+            parsed = json.loads(j["result"])
+        except (TypeError, ValueError):
+            continue
+        if str(parsed.get("reason", "")).startswith("provider error ("):
+            hits.append(j)
+    return hits
 
 
 def total_provider_tokens(order: dict) -> int:
@@ -352,6 +373,16 @@ def grade(fixture: dict, order: dict, timed_out: bool, source_bytes: bytes) -> d
     unexpected_failed_jobs = [j for j in order["jobs"] if j["status"] == "FAILED"]
     checks["no_unexpected_job_failures"] = len(unexpected_failed_jobs) == 0
 
+    # A provider error (bad/expired key, network failure, malformed
+    # response, ...) makes the worker escalate exactly like a genuine
+    # "the model chose to escalate" decision would - see
+    # worker.runAgentDecision. Both are legitimately escalate() calls, but
+    # only one of them actually exercised the model. A fixture that hit a
+    # provider error wasn't really testing what it claims to, so it fails
+    # here rather than silently counting as a correct agent decision.
+    provider_error_jobs = provider_error_agent_decide_jobs(order)
+    checks["no_provider_error"] = len(provider_error_jobs) == 0
+
     checks["artwork_status"] = order["artworkStatus"] == fixture.get("expected_artwork_status")
     checks["proof_status"] = order["proofStatus"] == fixture.get("expected_proof_status")
 
@@ -389,7 +420,12 @@ def grade(fixture: dict, order: dict, timed_out: bool, source_bytes: bytes) -> d
         proof_check = verify_proof_openable(order)
         checks["proof_openable"] = proof_check["ok"]
 
-    return {"checks": checks, "passed": all(checks.values()), "timed_out": False}
+    result = {"checks": checks, "passed": all(checks.values()), "timed_out": False}
+    if provider_error_jobs:
+        result["provider_error_categories"] = [
+            json.loads(j["result"]).get("reason") for j in provider_error_jobs
+        ]
+    return result
 
 
 def run_fixture(fixture: dict, mode: str) -> dict:
@@ -560,6 +596,17 @@ def main():
         print(f"  Held-out: {held_out_passed}/{len(held_out)} passed, {false_resolved} falsely-resolved case(s).")
         print(f"  {timed_out} timed out. avg latency {avg_elapsed:.1f}s. "
               f"total provider tokens (cost proxy): {total_tokens}.")
+        provider_error_cases = [r for r in results if r.get("provider_error_categories")]
+        if provider_error_cases:
+            # Loud on purpose - a provider error means the model was never
+            # actually exercised for that fixture, which fails it (see
+            # grade()'s no_provider_error check), but a reader skimming just
+            # the PASSED/RESOLVED counts above could otherwise mistake this
+            # for a real agent decision instead of a broken API call.
+            print(f"  WARNING: {len(provider_error_cases)} case(s) hit a PROVIDER ERROR (never reached the model, "
+                  f"not a real agent decision - these correctly failed no_provider_error):")
+            for r in provider_error_cases:
+                print(f"    {r['id']}: {r['provider_error_categories']}")
     else:
         resolved = sum(1 for r in results if r.get("reached_resolved"))
         timed_out = sum(1 for r in results if r.get("timed_out"))

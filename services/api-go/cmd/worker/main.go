@@ -75,9 +75,21 @@ func main() {
 // anything else - the interface is what makes this replaceable. No key
 // configured means no provider: the worker runs deterministic-only, same as
 // Day 2/3.
+//
+// A malformed key (empty after trimming, or carrying an embedded newline -
+// e.g. a trailing "\n" a shell pipeline left in when loading it into Secret
+// Manager) is treated the same as no key at all, logged clearly here rather
+// than left to surface later as an opaque net/http header error on the
+// first real decision call.
 func buildAgentProvider() agent.Provider {
-	if key := os.Getenv("GROQ_API_KEY"); key != "" {
-		return agent.NewGroqAdapter(key, envOr("GROQ_MODEL", ""))
+	key := os.Getenv("GROQ_API_KEY")
+	if key == "" {
+		return nil
 	}
-	return nil
+	provider, err := agent.NewGroqAdapter(key, envOr("GROQ_MODEL", ""))
+	if err != nil {
+		log.Printf("GROQ_API_KEY is set but invalid (%v) - running with no agent provider, same as unconfigured", err)
+		return nil
+	}
+	return provider
 }

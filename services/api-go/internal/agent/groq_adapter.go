@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -28,7 +30,22 @@ type GroqAdapter struct {
 	baseURL string
 }
 
-func NewGroqAdapter(apiKey, model string) *GroqAdapter {
+// NewGroqAdapter trims surrounding whitespace from apiKey and rejects it if
+// that leaves nothing, or leaves an embedded newline/carriage return - both
+// are malformed-secret cases (e.g. a trailing "\n" a shell pipeline left in
+// when the key was loaded into Secret Manager or .env) that would otherwise
+// only surface as Go's net/http rejecting the Authorization header at
+// request time, which reads as "the model chose escalation" to anyone not
+// reading server logs. Caught here instead, at construction, so a bad key
+// can never reach an HTTP request in the first place.
+func NewGroqAdapter(apiKey, model string) (*GroqAdapter, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return nil, errors.New("groq api key is empty")
+	}
+	if strings.ContainsAny(apiKey, "\n\r") {
+		return nil, errors.New("groq api key contains an embedded newline/carriage return")
+	}
 	if model == "" {
 		model = "openai/gpt-oss-20b"
 	}
@@ -41,7 +58,7 @@ func NewGroqAdapter(apiKey, model string) *GroqAdapter {
 		// one retry within that overall deadline, not consume all of it.
 		http:    &http.Client{Timeout: 12 * time.Second},
 		baseURL: "https://api.groq.com/openai/v1/chat/completions",
-	}
+	}, nil
 }
 
 // The prompt deliberately narrows ask_clarification to the ONE clarification
@@ -124,7 +141,7 @@ type decisionArgs struct {
 func (a *GroqAdapter) Decide(ctx context.Context, in DecisionInput) (Decision, error) {
 	findingsJSON, err := json.Marshal(in.Findings)
 	if err != nil {
-		return Decision{}, permanentErr(fmt.Errorf("failed to encode findings: %w", err))
+		return Decision{}, permanentErr("internal", fmt.Errorf("failed to encode findings: %w", err))
 	}
 	userPrompt := fmt.Sprintf(
 		"Order: %s sticker, declared %.3fx%.3f %s, intent=%s.\nFindings:\n%s",
@@ -146,12 +163,12 @@ func (a *GroqAdapter) Decide(ctx context.Context, in DecisionInput) (Decision, e
 	}
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		return Decision{}, permanentErr(fmt.Errorf("failed to encode request: %w", err))
+		return Decision{}, permanentErr("internal", fmt.Errorf("failed to encode request: %w", err))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return Decision{}, permanentErr(err)
+		return Decision{}, permanentErr("internal", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+a.apiKey)
@@ -160,13 +177,18 @@ func (a *GroqAdapter) Decide(ctx context.Context, in DecisionInput) (Decision, e
 	if err != nil {
 		// No response at all (network error, timeout, connection refused) -
 		// always worth retrying.
-		return Decision{}, transientErr(fmt.Errorf("groq request failed: %w", err))
+		category := "network"
+		var netErr interface{ Timeout() bool }
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			category = "timeout"
+		}
+		return Decision{}, transientErr(category, fmt.Errorf("groq request failed: %w", err))
 	}
 	defer resp.Body.Close()
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return Decision{}, transientErr(fmt.Errorf("failed to read groq response body: %w", err))
+		return Decision{}, transientErr("network", fmt.Errorf("failed to read groq response body: %w", err))
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -175,23 +197,23 @@ func (a *GroqAdapter) Decide(ctx context.Context, in DecisionInput) (Decision, e
 
 	var parsed groqChatResponse
 	if err := json.Unmarshal(respBytes, &parsed); err != nil {
-		return Decision{}, permanentErr(fmt.Errorf("failed to parse groq response: %w", err))
+		return Decision{}, permanentErr("parse_error", fmt.Errorf("failed to parse groq response: %w", err))
 	}
 	if len(parsed.Choices) == 0 || len(parsed.Choices[0].Message.ToolCalls) == 0 {
 		// A 200 with no tool call despite tool_choice being forced is a
 		// model-behavior hiccup, not a request problem - worth retrying.
-		return Decision{}, transientErr(fmt.Errorf("groq did not call the decision tool"))
+		return Decision{}, transientErr("no_tool_call", fmt.Errorf("groq did not call the decision tool"))
 	}
 
 	var args decisionArgs
 	if err := json.Unmarshal([]byte(parsed.Choices[0].Message.ToolCalls[0].Function.Arguments), &args); err != nil {
-		return Decision{}, permanentErr(fmt.Errorf("failed to parse decision arguments: %w", err))
+		return Decision{}, permanentErr("parse_error", fmt.Errorf("failed to parse decision arguments: %w", err))
 	}
 
 	switch args.Action {
 	case ActionAskClarification, ActionRequestRepair, ActionEscalate:
 	default:
-		return Decision{}, permanentErr(fmt.Errorf("model returned unrecognized action %q", args.Action))
+		return Decision{}, permanentErr("invalid_model_output", fmt.Errorf("model returned unrecognized action %q", args.Action))
 	}
 
 	return Decision{Action: args.Action, Question: args.Question, TokenUsage: parsed.Usage}, nil
@@ -207,20 +229,20 @@ func classifyHTTPError(status int, body []byte) error {
 
 	switch {
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		return permanentErr(baseErr) // bad/revoked API key
+		return permanentErr("auth", baseErr) // bad/revoked API key
 	case status == http.StatusNotFound:
-		return permanentErr(baseErr) // bad model name or endpoint
+		return permanentErr("not_found", baseErr) // bad model name or endpoint
 	case status == http.StatusTooManyRequests:
-		return transientErr(baseErr) // rate limited
+		return transientErr("rate_limit", baseErr) // rate limited
 	case status >= 500:
-		return transientErr(baseErr) // server-side error
+		return transientErr("server_error", baseErr) // server-side error
 	case status == http.StatusBadRequest:
 		var parsed groqErrorBody
 		if err := json.Unmarshal(body, &parsed); err == nil && parsed.Error.Code == "tool_use_failed" {
-			return transientErr(baseErr)
+			return transientErr("model_tool_call_failed", baseErr)
 		}
-		return permanentErr(baseErr) // malformed request - a bug in our own code, not fixed by retrying
+		return permanentErr("bad_request", baseErr) // malformed request - a bug in our own code, not fixed by retrying
 	default:
-		return permanentErr(baseErr)
+		return permanentErr("unexpected_status", baseErr)
 	}
 }

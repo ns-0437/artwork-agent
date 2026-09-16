@@ -615,7 +615,17 @@ func (w *Worker) runAgentDecision(ctx context.Context, job *store.Job) {
 	)
 
 	if decideErr != nil {
-		escalate("agent decision failed: " + decideErr.Error())
+		// The PERSISTED reason (visible over GraphQL/eval results/UI) is
+		// always this short, fixed, credential-free label - never
+		// decideErr.Error() itself, which can embed a provider's raw HTTP
+		// response body. Full detail still goes to server logs (not
+		// publicly queryable - see CLAUDE.md's known auth gaps) for actual
+		// debugging. This is distinct on purpose from "model chose to
+		// escalate" below: a failed provider call was never actually
+		// evaluated by the model at all.
+		category := agent.ErrorCategory(decideErr)
+		log.Printf("job %s: agent provider call failed (category=%s): %v", job.ID, category, decideErr)
+		escalate("provider error (" + category + ") -> escalated for review")
 		return
 	}
 
@@ -682,7 +692,11 @@ func (w *Worker) runAgentDecision(ctx context.Context, job *store.Job) {
 func (w *Worker) logAgentAttempt(ctx context.Context, orderID string, decision agent.Decision, decideErr error) {
 	detail := map[string]interface{}{}
 	if decideErr != nil {
-		detail["error"] = decideErr.Error()
+		// error_category only, not decideErr.Error() - toolEvents has no
+		// auth gate (CLAUDE.md's known limitations), and a provider's raw
+		// HTTP error body isn't something to persist/expose on spec. Full
+		// detail still reaches server logs via the caller (runAgentDecision).
+		detail["error_category"] = agent.ErrorCategory(decideErr)
 		detail["transient"] = agent.IsTransient(decideErr)
 	} else {
 		detail["action"] = decision.Action
