@@ -219,11 +219,7 @@ func (s *Store) CompleteRepair(
 		}
 
 		if enqueuePrepareProof {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO jobs (order_id, job_type, input_asset_id, input_case_version)
-				VALUES ($1, 'prepare_proof', $2, $3)
-				ON CONFLICT (order_id, job_type) WHERE status IN ('QUEUED', 'RUNNING') DO NOTHING
-			`, orderID, *derivedAssetID, expectedCaseVersion+1); err != nil {
+			if err := ensureJobEnqueued(ctx, tx, orderID, "prepare_proof", *derivedAssetID, expectedCaseVersion+1, nil, nil); err != nil {
 				return false, err
 			}
 		}

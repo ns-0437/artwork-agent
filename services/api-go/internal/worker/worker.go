@@ -27,6 +27,22 @@ const (
 	// replies, not just within one process lifetime.
 	maxAgentToolCalls        = 5
 	maxAgentTransientRetries = 2
+
+	// agentDecisionDeadline bounds the TOTAL wall-clock time runAgentDecision
+	// may spend calling the provider, across the initial attempt and every
+	// retry combined - not per attempt. This must stay comfortably below
+	// leaseDuration: three attempts at the adapter's own HTTP timeout
+	// (agent.groqHTTPTimeout) could otherwise exceed a 30s lease outright,
+	// and once a lease expires mid-call, ClaimNextJob will hand the SAME job
+	// to a different worker while the first is still mid-flight - wasted
+	// work, not corruption (every completion path is still gated on
+	// worker_id+lease), but real waste worth preventing rather than
+	// tolerating. Deriving a bounded context and threading it through every
+	// Decide call (see decideWithBoundedRetries) means a slow or hanging
+	// provider can never keep a job RUNNING past its lease, regardless of
+	// how many retries fire - this is enforced by the code, not by hoping
+	// two constants (lease duration, HTTP timeout) stay in sync by hand.
+	agentDecisionDeadline = 20 * time.Second
 )
 
 type Worker struct {
@@ -464,6 +480,38 @@ func (w *Worker) runPrepareProof(ctx context.Context, job *store.Job) {
 // internal/graph/resolvers.go - see the comment where it's used below.
 const trimOnlyClarificationQuestion = "Is your uploaded artwork trim-only - meaning it does NOT yet include the printer's required bleed margin? Please answer yes or no."
 
+// decideWithBoundedRetries calls provider.Decide once, then retries only for
+// transient errors (never permanent ones - bad auth or a malformed request
+// won't succeed on retry) up to whatever reserveRetry's budget allows,
+// STOPPING as soon as ctx's deadline has passed rather than attempting
+// another retry - this is the enforcement point for agentDecisionDeadline.
+// Extracted as its own function (independent of *Worker/*store.Store) so it
+// can be unit-tested with a fake provider and a short ctx timeout, without a
+// real database or network - see worker_test.go.
+func decideWithBoundedRetries(
+	ctx context.Context,
+	provider agent.Provider,
+	input agent.DecisionInput,
+	reserveRetry func() (bool, error),
+	onAttempt func(agent.Decision, error),
+) (agent.Decision, error) {
+	decision, err := provider.Decide(ctx, input)
+	onAttempt(decision, err)
+
+	for err != nil && agent.IsTransient(err) {
+		if ctx.Err() != nil {
+			break // deadline already exhausted - the caller escalates rather than hanging further
+		}
+		reserved, rErr := reserveRetry()
+		if rErr != nil || !reserved {
+			break
+		}
+		decision, err = provider.Decide(ctx, input)
+		onAttempt(decision, err)
+	}
+	return decision, err
+}
+
 // runAgentDecision is step 3 of the brief's bounded loop: "Ask one targeted
 // clarification, repair an eligible case, or escalate." It processes ONE
 // agent_decide job, itself a durable, resumable unit of work created
@@ -550,27 +598,21 @@ func (w *Worker) runAgentDecision(ctx context.Context, job *store.Job) {
 		return
 	}
 
-	decision, decideErr := w.Agent.Decide(ctx, input)
-	w.logAgentAttempt(ctx, job.OrderID, decision, decideErr)
+	// agentCtx bounds the ENTIRE retry sequence below (point on
+	// agentDecisionDeadline) - derived from the job's outer ctx so it's
+	// still cancelled if the worker itself shuts down, but with its own
+	// tighter deadline so a slow/hanging provider can never hold this job
+	// RUNNING anywhere near the job's lease expiry. Store calls (budget
+	// reservation, logging) deliberately keep using the OUTER ctx, not
+	// agentCtx - those are quick DB round trips that should still complete
+	// (and be attempted) even after the provider-call deadline has passed.
+	agentCtx, cancel := context.WithTimeout(ctx, agentDecisionDeadline)
+	defer cancel()
 
-	// Retries are checked against the PERSISTED total (ReserveAgentRetry),
-	// not a local counter that would reset every time this function runs -
-	// otherwise the true retry count across multiple tool calls could
-	// exceed the cap. Only a transient error is retried at all; permanent
-	// errors (bad auth, a malformed request) fail fast instead of wasting
-	// retry budget on something guaranteed to fail again.
-	for decideErr != nil && agent.IsTransient(decideErr) {
-		retryReserved, rErr := w.Store.ReserveAgentRetry(ctx, job.OrderID, maxAgentTransientRetries)
-		if rErr != nil {
-			log.Printf("job %s: failed to reserve agent retry budget: %v", job.ID, rErr)
-			break
-		}
-		if !retryReserved {
-			break
-		}
-		decision, decideErr = w.Agent.Decide(ctx, input)
-		w.logAgentAttempt(ctx, job.OrderID, decision, decideErr)
-	}
+	decision, decideErr := decideWithBoundedRetries(agentCtx, w.Agent, input,
+		func() (bool, error) { return w.Store.ReserveAgentRetry(ctx, job.OrderID, maxAgentTransientRetries) },
+		func(d agent.Decision, e error) { w.logAgentAttempt(ctx, job.OrderID, d, e) },
+	)
 
 	if decideErr != nil {
 		escalate("agent decision failed: " + decideErr.Error())

@@ -89,6 +89,20 @@ func (s *Store) RecordArtworkUpload(ctx context.Context, in CreateAssetInput) (*
 		`, in.OrderID, isReplacement, asset.ID); err != nil {
 			return nil, err
 		}
+
+		// A replacement upload invalidates any clarification still awaiting
+		// an answer - it was asked about the artwork_version that just
+		// became stale, and answering it now (even with the CURRENT
+		// case_version, which a client could still supply) must not be
+		// allowed to apply to artwork the question was never actually
+		// about. See AnswerClarificationAndConfirmTrim's artwork_version
+		// check, which this pairs with.
+		if _, err := tx.Exec(ctx, `
+			UPDATE clarifications SET invalidated_at = now()
+			WHERE order_id = $1 AND answered_at IS NULL AND invalidated_at IS NULL
+		`, in.OrderID); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

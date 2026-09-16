@@ -59,11 +59,12 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 	clarificationType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "Clarification",
 		Fields: graphql.Fields{
-			"id":         &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
-			"question":   &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
-			"answer":     &graphql.Field{Type: graphql.String},
-			"answeredAt": &graphql.Field{Type: graphql.String},
-			"createdAt":  &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"id":            &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+			"question":      &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"answer":        &graphql.Field{Type: graphql.String},
+			"answeredAt":    &graphql.Field{Type: graphql.String},
+			"invalidatedAt": &graphql.Field{Type: graphql.String},
+			"createdAt":     &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
 		},
 	})
 

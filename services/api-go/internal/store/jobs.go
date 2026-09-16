@@ -243,21 +243,14 @@ func (s *Store) CompleteInspection(
 	}
 
 	if enqueueAgentDecision {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO jobs (order_id, job_type, input_asset_id, input_case_version, agent_source_job_id)
-			VALUES ($1, 'agent_decide', $2, $3, $4)
-			ON CONFLICT (order_id, job_type) WHERE status IN ('QUEUED', 'RUNNING') DO NOTHING
-		`, orderID, assetID, expectedCaseVersion+1, jobID); err != nil {
+		sourceJobID := jobID
+		if err := ensureJobEnqueued(ctx, tx, orderID, "agent_decide", assetID, expectedCaseVersion+1, &sourceJobID, nil); err != nil {
 			return false, err
 		}
 	}
 
 	if enqueuePrepareProof {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO jobs (order_id, job_type, input_asset_id, input_case_version)
-			VALUES ($1, 'prepare_proof', $2, $3)
-			ON CONFLICT (order_id, job_type) WHERE status IN ('QUEUED', 'RUNNING') DO NOTHING
-		`, orderID, assetID, expectedCaseVersion+1); err != nil {
+		if err := ensureJobEnqueued(ctx, tx, orderID, "prepare_proof", assetID, expectedCaseVersion+1, nil, nil); err != nil {
 			return false, err
 		}
 	}
@@ -266,6 +259,58 @@ func (s *Store) CompleteInspection(
 		return false, err
 	}
 	return true, nil
+}
+
+// ensureJobEnqueued inserts a job of jobType for orderID bound to
+// (inputAssetID, inputCaseVersion) - reusing an already-active job of the
+// same type ONLY when it is bound to that EXACT asset/version (a safe,
+// idempotent no-op, per point 25's "enqueue mutations are idempotent by
+// construction"). A plain `ON CONFLICT ... DO NOTHING` cannot make that
+// distinction: if an active job of this type already exists but is bound to
+// a DIFFERENT (stale) asset/version - e.g. left over from a case_version
+// this order has since moved past - the conflict would silently skip the
+// insert and the new, correct continuation would simply never run, with the
+// transaction still reporting success. Here, a stale mismatch is instead
+// marked FAILED first (freeing the slot the partial unique index enforces)
+// so the new continuation is never dropped. If a worker still holds that
+// stale job's lease, its eventual completion attempt harmlessly no-ops via
+// the existing worker_id/status/lease guard every Complete* method already
+// has - marking it FAILED here doesn't race with that.
+//
+// agentSourceJobID and idempotencyKey are optional (nil when not
+// applicable to this job_type).
+func ensureJobEnqueued(
+	ctx context.Context, tx pgx.Tx,
+	orderID, jobType, inputAssetID string, inputCaseVersion int,
+	agentSourceJobID, idempotencyKey *string,
+) error {
+	var existingID, existingAssetID string
+	var existingCaseVersion int
+	err := tx.QueryRow(ctx, `
+		SELECT id, input_asset_id, input_case_version FROM jobs
+		WHERE order_id = $1 AND job_type = $2 AND status IN ('QUEUED', 'RUNNING')
+		FOR UPDATE
+	`, orderID, jobType).Scan(&existingID, &existingAssetID, &existingCaseVersion)
+	if err != nil && err != pgx.ErrNoRows {
+		return err
+	}
+	if err == nil {
+		if existingAssetID == inputAssetID && existingCaseVersion == inputCaseVersion {
+			return nil // already exactly the continuation we need
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE jobs SET status = 'FAILED', last_error = 'superseded: a newer case_version/asset requires a fresh job', updated_at = now()
+			WHERE id = $1
+		`, existingID); err != nil {
+			return err
+		}
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO jobs (order_id, job_type, input_asset_id, input_case_version, agent_source_job_id, idempotency_key)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, orderID, jobType, inputAssetID, inputCaseVersion, agentSourceJobID, idempotencyKey)
+	return err
 }
 
 func orderIDForJob(ctx context.Context, tx pgx.Tx, jobID string) (string, error) {

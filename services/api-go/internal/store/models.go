@@ -70,12 +70,14 @@ type Finding struct {
 }
 
 type Clarification struct {
-	ID         string
-	OrderID    string
-	Question   string
-	Answer     *string
-	AnsweredAt *time.Time
-	CreatedAt  time.Time
+	ID             string
+	OrderID        string
+	Question       string
+	Answer         *string
+	AnsweredAt     *time.Time
+	ArtworkVersion int // the order's artwork_version at the moment this was asked - see AnswerClarificationAndConfirmTrim
+	InvalidatedAt  *time.Time
+	CreatedAt      time.Time
 }
 
 type Repair struct {

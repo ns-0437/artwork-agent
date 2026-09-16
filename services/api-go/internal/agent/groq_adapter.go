@@ -33,9 +33,13 @@ func NewGroqAdapter(apiKey, model string) *GroqAdapter {
 		model = "openai/gpt-oss-20b"
 	}
 	return &GroqAdapter{
-		apiKey:  apiKey,
-		model:   model,
-		http:    &http.Client{Timeout: 20 * time.Second},
+		apiKey: apiKey,
+		model:  model,
+		// Deliberately shorter than worker.agentDecisionDeadline (20s),
+		// which bounds the WHOLE retry sequence, not one call - a single
+		// attempt hitting this timeout must still leave room for at least
+		// one retry within that overall deadline, not consume all of it.
+		http:    &http.Client{Timeout: 12 * time.Second},
 		baseURL: "https://api.groq.com/openai/v1/chat/completions",
 	}
 }

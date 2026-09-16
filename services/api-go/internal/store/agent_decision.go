@@ -88,8 +88,15 @@ func (s *Store) CompleteAgentDecision(
 
 	switch outcome.Action {
 	case "ask_clarification":
+		// Bound to the order's CURRENT artwork_version at the moment the
+		// question is asked - AnswerClarificationAndConfirmTrim checks this
+		// matches the order's artwork_version again at answer time, so a
+		// replacement upload in between (which bumps artwork_version and
+		// invalidates any still-unanswered question) can never have its
+		// answer silently misapplied to different artwork.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO clarifications (order_id, question) VALUES ($1, $2)
+			INSERT INTO clarifications (order_id, question, artwork_version)
+			SELECT $1, $2, artwork_version FROM orders WHERE id = $1
 		`, orderID, outcome.ClarificationQuestion); err != nil {
 			return false, err
 		}
@@ -101,11 +108,8 @@ func (s *Store) CompleteAgentDecision(
 		}
 
 	case "request_repair":
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO jobs (order_id, job_type, input_asset_id, input_case_version, idempotency_key)
-			VALUES ($1, 'repair', $2, $3, $4)
-			ON CONFLICT (order_id, job_type) WHERE status IN ('QUEUED', 'RUNNING') DO NOTHING
-		`, orderID, outcome.RepairAssetID, expectedCaseVersion, outcome.RepairIdempotencyKey); err != nil {
+		key := outcome.RepairIdempotencyKey
+		if err := ensureJobEnqueued(ctx, tx, orderID, "repair", outcome.RepairAssetID, expectedCaseVersion, nil, &key); err != nil {
 			return false, err
 		}
 		// No order-state write here: decideArtworkStatus already left the

@@ -19,7 +19,7 @@ from PIL import Image
 from app.checks import resolution as resolution_check
 from app.checks.bleed import check_bleed
 from app.checks.color import check_color
-from app.checks.trim import resolve_trim
+from app.checks.trim import resolve_trim, unresolved_trim_reason
 from app.checks.units import to_inches
 from app.repair.eligibility import check_eligibility
 from app.repair.extend_background import CanvasTooLargeError, extend_background
@@ -98,10 +98,18 @@ async def inspect(
     checks = []
     effective_ppi = None
     if trim is None:
+        # Two distinct reasons collapse to the same "trim is None" outcome
+        # here - see unresolved_trim_reason's docstring - and the exact
+        # wording matters downstream: worker.hasUnconfirmedTrimFinding keys
+        # off a substring match to decide whether ask_clarification is
+        # appropriate, so a customer who already answered "no" must get
+        # different evidence text than one who was never asked, or the
+        # agent would re-ask the same already-answered question forever.
+        reason = unresolved_trim_reason(intent, artwork_is_trim_only)
         checks.append({
             "check_name": "resolution",
             "result": "NEEDS_INPUT",
-            "evidence": {"reason": "trim rectangle not confirmed - confirm whether the upload already includes bleed"},
+            "evidence": {"reason": reason},
             "rule_version": resolution_check.RULE_VERSION,
         })
     else:
@@ -121,6 +129,11 @@ async def inspect(
         effective_ppi=effective_ppi,
     )
     if bleed_result is not None:
+        if trim is None:
+            # Same reason substitution as the resolution finding above, and
+            # for the same cause - check_bleed itself only knows
+            # trim_confirmed (a bool), not WHY it's false.
+            bleed_result["evidence"]["reason"] = unresolved_trim_reason(intent, artwork_is_trim_only)
         checks.append(bleed_result)
 
     return {

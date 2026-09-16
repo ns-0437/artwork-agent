@@ -99,5 +99,10 @@ func clarificationToMap(c *store.Clarification) map[string]interface{} {
 	} else {
 		m["answeredAt"] = nil
 	}
+	if c.InvalidatedAt != nil {
+		m["invalidatedAt"] = fmtTime(*c.InvalidatedAt)
+	} else {
+		m["invalidatedAt"] = nil
+	}
 	return m
 }

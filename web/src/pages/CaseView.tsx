@@ -22,6 +22,7 @@ type Clarification = {
   question: string
   answer: string | null
   answeredAt: string | null
+  invalidatedAt: string | null
 }
 
 type Order = {
@@ -47,7 +48,7 @@ const ORDER_FIELDS = `
   caseVersion artworkStatus proofStatus productionStatus
   findings { id checkName result evidence ruleVersion }
   jobs { id jobType status attemptCount lastError }
-  clarifications { id question answer answeredAt }
+  clarifications { id question answer answeredAt invalidatedAt }
 `
 
 export default function CaseView() {
@@ -268,7 +269,7 @@ export default function CaseView() {
       {order &&
         order.artworkStatus === 'AWAITING_CLARIFICATION' &&
         (() => {
-          const pending = order.clarifications.find((c) => c.answeredAt === null)
+          const pending = order.clarifications.find((c) => c.answeredAt === null && c.invalidatedAt === null)
           if (!pending) return null
           return (
             <section style={{ border: '2px solid #d97706', borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
@@ -348,7 +349,13 @@ export default function CaseView() {
             {order.clarifications.map((c) => (
               <li key={c.id}>
                 Q: {c.question}
-                {c.answer ? <> — A: {c.answer}</> : <> — (awaiting answer)</>}
+                {c.answer ? (
+                  <> — A: {c.answer}</>
+                ) : c.invalidatedAt ? (
+                  <> — (invalidated by a newer upload)</>
+                ) : (
+                  <> — (awaiting answer)</>
+                )}
               </li>
             ))}
           </ul>

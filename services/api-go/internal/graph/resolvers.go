@@ -260,6 +260,9 @@ func (r *Resolver) resolveAnswerClarification(p graphql.ResolveParams) (interfac
 	if clarification.AnsweredAt != nil {
 		return nil, fmt.Errorf("clarification %s was already answered", clarificationID)
 	}
+	if clarification.InvalidatedAt != nil {
+		return nil, fmt.Errorf("clarification %s no longer applies - a new artwork upload replaced the artwork it was asked about", clarificationID)
+	}
 
 	isTrimOnly, ok := interpretYesNo(answer)
 	if !ok {
@@ -271,7 +274,10 @@ func (r *Resolver) resolveAnswerClarification(p graphql.ResolveParams) (interfac
 		return nil, err
 	}
 	if !applied {
-		return nil, fmt.Errorf("clarification %s: case_version %d is stale, or it was already answered - refresh and retry", clarificationID, expectedCaseVersion)
+		return nil, fmt.Errorf(
+			"clarification %s could not be answered: case_version %d is stale, the question was already answered/invalidated by a newer upload, or it is no longer the active clarification for this order - refresh and retry",
+			clarificationID, expectedCaseVersion,
+		)
 	}
 
 	// "A validated reply enqueues continuation": AnswerClarificationAndConfirmTrim
