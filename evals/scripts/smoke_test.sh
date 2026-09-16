@@ -6,17 +6,20 @@ set -euo pipefail
 
 API=http://localhost:8080
 FIXDIR="$(dirname "$0")/../fixtures"
+# Prefer python3 - many fresh Linux/Mac installs have no bare `python` on
+# PATH at all, only python3.
+PYTHON="$(command -v python3 || command -v python)"
 
 run_fixture() {
   local file="$1" width="$2" height="$3" unit="$4" intent="$5" label="$6"
 
   order_id=$(curl -s -X POST "$API/graphql" -H "Content-Type: application/json" \
     -d "{\"query\":\"mutation(\$input: CreateOrderInput!) { createOrder(input: \$input) { id } }\",\"variables\":{\"input\":{\"ownerId\":\"smoke-test\",\"productType\":\"die-cut-sticker\",\"declaredWidth\":$width,\"declaredHeight\":$height,\"declaredUnit\":\"$unit\",\"intent\":\"$intent\"}}}" \
-    | python -c "import sys,json; print(json.load(sys.stdin)['data']['createOrder']['id'])")
+    | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['data']['createOrder']['id'])")
 
   upload_url=$(curl -s -X POST "$API/graphql" -H "Content-Type: application/json" \
     -d "{\"query\":\"mutation(\$orderId: ID!, \$contentType: String!) { createUpload(orderId: \$orderId, contentType: \$contentType) { uploadUrl } }\",\"variables\":{\"orderId\":\"$order_id\",\"contentType\":\"image/png\"}}" \
-    | python -c "import sys,json; print(json.load(sys.stdin)['data']['createUpload']['uploadUrl'])")
+    | "$PYTHON" -c "import sys,json; print(json.load(sys.stdin)['data']['createUpload']['uploadUrl'])")
 
   curl -s -X POST "$upload_url" -H "Content-Type: image/png" --data-binary @"$FIXDIR/$file" > /dev/null
 
@@ -28,7 +31,7 @@ run_fixture() {
   echo "=== $label ($file, ${width}x${height}$unit, intent=$intent) ==="
   curl -s -X POST "$API/graphql" -H "Content-Type: application/json" \
     -d "{\"query\":\"query(\$id: ID!) { order(id: \$id) { artworkStatus proofStatus findings { checkName result } } }\",\"variables\":{\"id\":\"$order_id\"}}" \
-    | python -m json.tool
+    | "$PYTHON" -m json.tool
   echo
 }
 
