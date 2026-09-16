@@ -1,6 +1,24 @@
 # Cloud Run service for services/image-python - the brief calls this out as
-# "private Python": ingress is restricted to internal traffic (from other
-# Cloud Run services / VPC) only, never reachable from the public internet.
+# "private Python": no public access, enforced by IAM (roles/run.invoker
+# below is granted only to the api-go/worker service account, never
+# allUsers/allAuthenticatedUsers), not by network ingress.
+#
+# ingress: internal was tried first and reverted - it rejects even
+# same-project Cloud Run callers unless they're on a Serverless VPC
+# connector or use Direct VPC egress (Google now supports reaching
+# internal-ingress services this way without a connector - see
+# https://docs.cloud.google.com/run/docs/securing/private-networking).
+# Neither is set up here, so a sibling Cloud Run service's call still
+# leaves over the public internet and "internal" ingress 404s it exactly
+# like an outside caller (GFE's route-not-found page, confirmed by curling
+# this service directly and getting the identical body). Switching to
+# ingress: all avoids needing a VPC connector at all - a narrower claim than
+# "free" or any specific dollar figure, which wasn't estimated here. Cloud
+# Run's own compute/request billing still applies regardless of ingress
+# setting. Every request still needs a
+# valid Google-signed identity token whose audience matches this service's
+# URL (https://docs.cloud.google.com/run/docs/authenticating/service-to-service) -
+# an unauthenticated or wrongly-scoped request gets HTTP 403, not through.
 # Deploy with:
 #   gcloud run services replace infra/gcp/image-python-service.yaml --region=REGION
 apiVersion: serving.knative.dev/v1
@@ -8,7 +26,7 @@ kind: Service
 metadata:
   name: artwork-agent-image-python
   annotations:
-    run.googleapis.com/ingress: internal
+    run.googleapis.com/ingress: all
 spec:
   template:
     spec:
