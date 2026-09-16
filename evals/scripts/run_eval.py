@@ -87,7 +87,29 @@ ORDER_FIELDS = """
   clarifications { id question answer answeredAt invalidatedAt }
   repairs { status reason diagnosis }
   assets { id kind sha256 storageKey widthPx heightPx }
+  toolEvents { eventType detail }
 """
+
+
+def total_provider_tokens(order: dict) -> int:
+    """Sums whatever token usage the provider itself reported across every
+    agent tool_call for this order (agent.Decision.TokenUsage, logged in
+    worker.logAgentAttempt) - zero for --mode baseline/scripted by
+    construction, since no provider call ever happens there. Purely a cost
+    observability number, never used for any budget/decision logic (that's
+    agent_tool_calls_used/agent_retries_used, point 6)."""
+    total = 0
+    for event in order.get("toolEvents", []):
+        if event["eventType"] != "tool_call":
+            continue
+        try:
+            detail = json.loads(event["detail"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        usage = detail.get("token_usage")
+        if usage:
+            total += usage.get("total_tokens", 0)
+    return total
 
 
 def create_order(fixture: dict) -> dict:
@@ -157,6 +179,23 @@ def request_repair(order_id: str, idempotency_key: str, case_version: int) -> di
         {"orderId": order_id, "key": idempotency_key, "cv": case_version},
     )
     return data["requestRepair"]
+
+
+def escalate_case(order_id: str, reason: str, case_version: int) -> dict:
+    """The scripted workflow's deterministic escalation fallback - the same
+    NEEDS_REVIEW-plus-reason capability the agent's own `escalate` action
+    has (store.EscalateCase), called here with a rule-based reason instead
+    of a model's judgment call. Without this, a fair comparison against the
+    agent isn't possible: the agent can turn a case nothing else resolves
+    into an actioned NEEDS_REVIEW, and a scripted workflow with the same
+    tools can do exactly the same thing - it just needs a rule saying when."""
+    data = gql(
+        """mutation($orderId: ID!, $reason: String!, $cv: Int!) {
+            escalateCase(orderId: $orderId, reason: $reason, caseVersion: $cv) { """ + ORDER_FIELDS + """ }
+        }""",
+        {"orderId": order_id, "reason": reason, "cv": case_version},
+    )
+    return data["escalateCase"]
 
 
 def get_order(order_id: str) -> dict:
@@ -390,7 +429,13 @@ def run_fixture(fixture: dict, mode: str) -> dict:
     elif mode == "scripted":
         # Agent disabled (same worker-baseline as --mode baseline), but the
         # HARNESS supplies the same tool calls and scripted replies a
-        # non-AI scripted workflow would, deterministically:
+        # non-AI scripted workflow would, deterministically - INCLUDING a
+        # deterministic escalation fallback, so this is a fair comparison
+        # against the agent's own escalate action rather than a script that
+        # simply has no way to give up on a case (see evals/CHANGES.md /
+        # the Day 5 report on why a script without this made the earlier
+        # "the agent adds escalation" comparison unfair - a script can
+        # attach a rule-based reason and escalate too).
         final_order, timed_out = poll_until_drained(order_id)
         if not timed_out and has_unconfirmed_trim_finding(final_order) and fixture.get("scripted_clarification_reply"):
             is_trim_only = fixture["scripted_clarification_reply"].strip().lower() == "yes"
@@ -399,6 +444,18 @@ def run_fixture(fixture: dict, mode: str) -> dict:
             final_order, timed_out = poll_until_drained(order_id)
         if not timed_out and has_confirmed_insufficient_bleed_finding(final_order):
             request_repair(order_id, f"scripted-{order_id}", final_order["caseVersion"])
+            final_order, timed_out = poll_until_drained(order_id)
+        if not timed_out and final_order["artworkStatus"] not in ("RESOLVED", "NEEDS_REVIEW"):
+            # Nothing in the script's rule set applies to whatever's left
+            # (e.g. a plain low-resolution finding, or a trim question with
+            # no scripted reply configured) - escalate deterministically
+            # with a rule-based reason, exactly like the agent's own
+            # "escalate: anything else" fallback.
+            final_order = escalate_case(
+                order_id,
+                "no scripted rule (confirm trim / request repair) applies to the remaining findings",
+                final_order["caseVersion"],
+            )
             final_order, timed_out = poll_until_drained(order_id)
     else:
         raise ValueError(f"unknown mode: {mode}")
@@ -411,12 +468,21 @@ def run_fixture(fixture: dict, mode: str) -> dict:
         "final_artwork_status": final_order["artworkStatus"],
         "final_proof_status": final_order["proofStatus"],
         "repairs": final_order["repairs"],
+        "total_tokens": total_provider_tokens(final_order),
     }
 
     if mode == "agent":
         result["expected_artwork_status"] = fixture.get("expected_artwork_status")
         result["expected_proof_status"] = fixture.get("expected_proof_status")
+        # "passed" grades whether the CASE ended up in the state it should
+        # have (RESOLVED, or a correctly-escalated NEEDS_REVIEW, etc) - it
+        # is NOT the same claim as "the order was resolved." A fixture
+        # whose correct behavior is escalation passes without the order
+        # ever reaching RESOLVED - see "resolved" below, reported
+        # separately, precisely so these two different things are never
+        # conflated in a summary.
         result.update(grade(fixture, final_order, timed_out, file_bytes))
+        result["resolved"] = (not timed_out) and final_order["artworkStatus"] == "RESOLVED"
     else:
         result["timed_out"] = timed_out
         result["reached_resolved"] = (not timed_out) and final_order["artworkStatus"] == "RESOLVED"
@@ -465,6 +531,7 @@ def main():
     if args.mode == "agent":
         total = len(results)
         passed = sum(1 for r in results if r.get("passed"))
+        resolved = sum(1 for r in results if r.get("resolved"))
         held_out = [r for r in results if r["split"] == "held-out"]
         held_out_passed = sum(1 for r in held_out if r.get("passed"))
         timed_out = sum(1 for r in results if r.get("timed_out"))
@@ -472,12 +539,26 @@ def main():
             1 for r in held_out
             if r.get("final_artwork_status") == "RESOLVED" and r.get("expected_artwork_status") != "RESOLVED"
         )
-        print(f"\nAgent run: {passed}/{total} passed overall, {held_out_passed}/{len(held_out)} held-out passed, "
-              f"{timed_out} timed out, {false_resolved} falsely-resolved held-out case(s).")
+        total_tokens = sum(r.get("total_tokens", 0) for r in results)
+        avg_elapsed = sum(r.get("elapsed_s", 0) for r in results) / total
+        # Two DIFFERENT metrics, reported separately on purpose: "passed"
+        # grades whether each case ended in the state it should have
+        # (a correctly-escalated NEEDS_REVIEW passes); "resolved" counts
+        # only cases where the order actually reached RESOLVED. A high
+        # pass rate does not imply a high resolution rate, and conflating
+        # them overstates what "34/34 passed" actually means.
+        print(f"\nAgent run: {passed}/{total} evaluation cases PASSED (correct final state, whatever it was), "
+              f"{resolved}/{total} orders actually RESOLVED.")
+        print(f"  Held-out: {held_out_passed}/{len(held_out)} passed, {false_resolved} falsely-resolved case(s).")
+        print(f"  {timed_out} timed out. avg latency {avg_elapsed:.1f}s. "
+              f"total provider tokens (cost proxy): {total_tokens}.")
     else:
         resolved = sum(1 for r in results if r.get("reached_resolved"))
         timed_out = sum(1 for r in results if r.get("timed_out"))
-        print(f"\n{args.mode.capitalize()} run: {resolved}/{len(results)} reached RESOLVED, {timed_out} timed out.")
+        total_tokens = sum(r.get("total_tokens", 0) for r in results)
+        avg_elapsed = sum(r.get("elapsed_s", 0) for r in results) / len(results)
+        print(f"\n{args.mode.capitalize()} run: {resolved}/{len(results)} orders RESOLVED, {timed_out} timed out, "
+              f"avg latency {avg_elapsed:.1f}s, total provider tokens (cost proxy): {total_tokens}.")
 
 
 if __name__ == "__main__":

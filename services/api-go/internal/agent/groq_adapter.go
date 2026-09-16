@@ -105,6 +105,7 @@ type groqChatResponse struct {
 			} `json:"tool_calls"`
 		} `json:"message"`
 	} `json:"choices"`
+	Usage TokenUsage `json:"usage"`
 }
 
 type groqErrorBody struct {
@@ -193,7 +194,7 @@ func (a *GroqAdapter) Decide(ctx context.Context, in DecisionInput) (Decision, e
 		return Decision{}, permanentErr(fmt.Errorf("model returned unrecognized action %q", args.Action))
 	}
 
-	return Decision{Action: args.Action, Question: args.Question}, nil
+	return Decision{Action: args.Action, Question: args.Question, TokenUsage: parsed.Usage}, nil
 }
 
 // classifyHTTPError distinguishes auth/invalid-request failures (never

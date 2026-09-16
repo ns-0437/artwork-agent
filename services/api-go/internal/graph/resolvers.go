@@ -99,6 +99,20 @@ func (r *Resolver) resolveOrderRepairs(p graphql.ResolveParams) (interface{}, er
 	return out, nil
 }
 
+func (r *Resolver) resolveOrderToolEvents(p graphql.ResolveParams) (interface{}, error) {
+	src := p.Source.(map[string]interface{})
+	orderID := src["id"].(string)
+	events, err := r.Store.ListToolEventsForOrder(p.Context, orderID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]interface{}, 0, len(events))
+	for i := range events {
+		out = append(out, toolEventToMap(&events[i]))
+	}
+	return out, nil
+}
+
 func (r *Resolver) resolveCreateOrder(p graphql.ResolveParams) (interface{}, error) {
 	input, ok := p.Args["input"].(map[string]interface{})
 	if !ok {
@@ -207,6 +221,35 @@ func (r *Resolver) resolveConfirmTrim(p graphql.ResolveParams) (interface{}, err
 	}
 	if !ok {
 		return nil, fmt.Errorf("order %s: case_version %d is stale, refresh and retry", orderID, expectedCaseVersion)
+	}
+
+	o, err := r.Store.GetOrder(p.Context, orderID)
+	if err != nil {
+		return nil, err
+	}
+	if o == nil {
+		return nil, fmt.Errorf("order %s not found", orderID)
+	}
+	return orderToMap(o), nil
+}
+
+// resolveEscalateCase is a direct, non-agent path to NEEDS_REVIEW + reason -
+// see store.EscalateCase's comment for why this exists (a deterministic
+// scripted workflow needs the same "give up and flag this" capability the
+// agent's own escalate action has, or any comparison between them is
+// measuring "has an escalation path" vs. "doesn't," not what either
+// actually decides).
+func (r *Resolver) resolveEscalateCase(p graphql.ResolveParams) (interface{}, error) {
+	orderID := p.Args["orderId"].(string)
+	reason := p.Args["reason"].(string)
+	expectedCaseVersion := p.Args["caseVersion"].(int)
+
+	ok, err := r.Store.EscalateCase(p.Context, orderID, reason, expectedCaseVersion)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("order %s: case_version %d is stale, the order is already RESOLVED, or it does not exist", orderID, expectedCaseVersion)
 	}
 
 	o, err := r.Store.GetOrder(p.Context, orderID)

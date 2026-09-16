@@ -2,30 +2,32 @@
   {
     "id": "clean-a",
     "split": "dev",
-    "order_id": "05682c4b-97cc-4066-8ed7-30255c204c61",
-    "elapsed_s": 14.5,
-    "final_artwork_status": "BLOCKED",
+    "order_id": "a02ac055-51c6-46f0-b02d-1a11d2a0b1b5",
+    "elapsed_s": 18.47,
+    "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "lowres-a",
     "split": "dev",
-    "order_id": "e7eb293f-3a02-4062-bdd8-9e121f39eba7",
-    "elapsed_s": 12.48,
-    "final_artwork_status": "BLOCKED",
+    "order_id": "0b10ab1a-9d4c-42b6-bfd0-11ade1adca98",
+    "elapsed_s": 16.41,
+    "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "missing-bleed-a",
     "split": "dev",
-    "order_id": "7c65b636-ec87-4c90-b133-1b12bd0134fa",
-    "elapsed_s": 21.72,
+    "order_id": "e5c57c76-5243-4141-9c25-0257d972df80",
+    "elapsed_s": 21.52,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [
@@ -35,14 +37,15 @@
         "status": "REPAIRED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "gradient-edge-a",
     "split": "dev",
-    "order_id": "05916a03-8324-4fb7-8da6-c757969e5ac1",
-    "elapsed_s": 18.66,
+    "order_id": "6b35087b-44fc-4061-a385-c8f95c8b3078",
+    "elapsed_s": 18.88,
     "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [
@@ -52,25 +55,27 @@
         "status": "REJECTED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "clean-border-a",
     "split": "dev",
-    "order_id": "92435c77-5705-48b8-bc96-d9dc058f9fe4",
-    "elapsed_s": 15.45,
+    "order_id": "d7b7a4f4-9900-4970-b77e-f9eb897468cc",
+    "elapsed_s": 15.3,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "missing-bleed-clarify-a",
     "split": "dev",
-    "order_id": "8bd91bc2-0b8f-4a8c-939c-8a2c6d3565ce",
-    "elapsed_s": 25.55,
+    "order_id": "fff350cb-46ca-4a45-a087-2ebd02d3b6c1",
+    "elapsed_s": 25.58,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [
@@ -80,14 +85,15 @@
         "status": "REPAIRED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "textured-edge-a",
     "split": "dev",
-    "order_id": "b3cd8003-048a-452d-b5ed-277301cd33bd",
-    "elapsed_s": 18.45,
+    "order_id": "7451076e-3303-4b13-bfd6-7f7ff36f9933",
+    "elapsed_s": 18.44,
     "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [
@@ -97,14 +103,15 @@
         "status": "REJECTED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "object-touching-edge-a",
     "split": "dev",
-    "order_id": "e06b31bd-f270-4368-ac7e-d1bc8f851270",
-    "elapsed_s": 18.66,
+    "order_id": "b60c02ce-4a5a-48d7-91e5-bd18adf2d7ed",
+    "elapsed_s": 18.42,
     "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [
@@ -114,14 +121,15 @@
         "status": "REJECTED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "transparency-edge-a",
     "split": "dev",
-    "order_id": "96b53287-8ed5-4a7a-bb42-1fc904a1ec10",
-    "elapsed_s": 18.58,
+    "order_id": "914d515a-8e51-4099-a1ed-ea963ca31a3c",
+    "elapsed_s": 18.47,
     "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [
@@ -131,14 +139,15 @@
         "status": "REJECTED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "rgba-opaque-a",
     "split": "dev",
-    "order_id": "91c7a594-102b-4276-9837-b89f20502ee3",
-    "elapsed_s": 21.8,
+    "order_id": "a85cdbdf-c335-4154-87a1-835faa5fa232",
+    "elapsed_s": 21.53,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [
@@ -148,36 +157,39 @@
         "status": "REPAIRED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "grayscale-a",
     "split": "dev",
-    "order_id": "ffb0453f-7401-4eef-836a-6b18c7b3e9d5",
-    "elapsed_s": 15.53,
+    "order_id": "73382790-bc73-4c97-a061-dc1aebb862f7",
+    "elapsed_s": 15.33,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "cmyk-a",
     "split": "dev",
-    "order_id": "a39494fc-a7d3-4a7a-84cc-0988e8465ca9",
-    "elapsed_s": 15.38,
+    "order_id": "475a5873-6be5-4640-920d-e1ce5b0696c8",
+    "elapsed_s": 15.39,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "mixed-issues-a",
     "split": "dev",
-    "order_id": "0c7cb278-68c4-4f5d-bbef-13cf7793da54",
-    "elapsed_s": 18.66,
+    "order_id": "b53a7896-7535-456e-9509-fe255ea95c54",
+    "elapsed_s": 18.42,
     "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [
@@ -187,102 +199,111 @@
         "status": "REJECTED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "ppi-boundary-dev-299",
     "split": "dev",
-    "order_id": "575a80a8-fa46-4628-a6b1-a5d6a94fa1c1",
-    "elapsed_s": 12.45,
-    "final_artwork_status": "BLOCKED",
+    "order_id": "5fa3086e-d85e-479e-aa5d-804e5d404359",
+    "elapsed_s": 16.42,
+    "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "ppi-boundary-dev-300",
     "split": "dev",
-    "order_id": "99bdf437-6e0d-43e0-9803-1f946c781f75",
-    "elapsed_s": 15.41,
+    "order_id": "81ccbe14-d873-46cf-a512-a8ef1138b59f",
+    "elapsed_s": 15.3,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "ppi-boundary-dev-301",
     "split": "dev",
-    "order_id": "6d1c8b22-7427-4207-96c0-2191d22c6d07",
-    "elapsed_s": 15.34,
+    "order_id": "5c205e77-3d17-49f7-b231-a3dba78df187",
+    "elapsed_s": 15.31,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "clean-b",
     "split": "held-out",
-    "order_id": "a557272d-245d-4883-9f47-b06bc8f12ef5",
-    "elapsed_s": 15.55,
+    "order_id": "b5e03bfd-a409-4b45-81f3-065c35c585d9",
+    "elapsed_s": 15.39,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "rgb-noprofile-a",
     "split": "held-out",
-    "order_id": "5969c748-1879-49ca-a417-4990e3163e37",
-    "elapsed_s": 15.41,
+    "order_id": "63b542af-b3a2-44d5-bfee-a8733a4beb45",
+    "elapsed_s": 15.33,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "border-a",
     "split": "held-out",
-    "order_id": "f8b79282-fb38-4b15-b78e-efc24d69b88a",
-    "elapsed_s": 15.47,
+    "order_id": "398d7710-8ec8-44be-b344-0bebd1361f5e",
+    "elapsed_s": 15.3,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "clean-full-bleed-b",
     "split": "held-out",
-    "order_id": "233e3247-ae3c-448a-bbc8-e5c35e2ccf9a",
-    "elapsed_s": 14.44,
-    "final_artwork_status": "BLOCKED",
+    "order_id": "eb6d421d-7707-4f4b-b845-c38f93ede3e9",
+    "elapsed_s": 18.47,
+    "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "lowres-b",
     "split": "held-out",
-    "order_id": "616875a5-6690-45e4-b1d1-fe8161dd5099",
-    "elapsed_s": 12.38,
-    "final_artwork_status": "BLOCKED",
+    "order_id": "4c182552-8756-4481-9e40-13a559ed5e06",
+    "elapsed_s": 16.42,
+    "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "missing-bleed-b",
     "split": "held-out",
-    "order_id": "adaff066-f784-4f53-8029-24c86147f1b9",
-    "elapsed_s": 21.58,
+    "order_id": "38e02250-55c4-458f-aab0-cfd27fe624a9",
+    "elapsed_s": 21.61,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [
@@ -292,14 +313,15 @@
         "status": "REPAIRED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "missing-bleed-clarify-b",
     "split": "held-out",
-    "order_id": "27261e76-f1a9-4bef-841c-10e1251398d0",
-    "elapsed_s": 25.92,
+    "order_id": "4afa1e2a-8ec5-440e-a695-daac7f4f383c",
+    "elapsed_s": 25.64,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [
@@ -309,14 +331,15 @@
         "status": "REPAIRED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "gradient-edge-b",
     "split": "held-out",
-    "order_id": "6272a7bb-d178-46c3-a8ee-180f13a1fb28",
-    "elapsed_s": 18.72,
+    "order_id": "1d6c181f-733b-4eed-97de-477c634689bd",
+    "elapsed_s": 18.44,
     "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [
@@ -326,14 +349,15 @@
         "status": "REJECTED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "textured-edge-b",
     "split": "held-out",
-    "order_id": "4d68c960-d893-4a3b-9313-ed535ca46f26",
-    "elapsed_s": 18.52,
+    "order_id": "639aafc4-2b65-4fff-9064-1054d345ac5c",
+    "elapsed_s": 18.39,
     "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [
@@ -343,14 +367,15 @@
         "status": "REJECTED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "object-touching-edge-b",
     "split": "held-out",
-    "order_id": "71ca8717-c82b-4736-9058-7d58bc020e6f",
-    "elapsed_s": 18.75,
+    "order_id": "21810cc9-8110-4931-988a-b840ef822ccb",
+    "elapsed_s": 18.48,
     "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [
@@ -360,14 +385,15 @@
         "status": "REJECTED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "transparency-edge-b",
     "split": "held-out",
-    "order_id": "bdc43af7-f8d9-4996-a3e1-728a8a90dca0",
-    "elapsed_s": 18.61,
+    "order_id": "551cc8f3-6287-4fdb-a3c5-a3b0bc6f7b6d",
+    "elapsed_s": 18.44,
     "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [
@@ -377,14 +403,15 @@
         "status": "REJECTED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "rgba-opaque-b",
     "split": "held-out",
-    "order_id": "63f49fb2-affd-4ecf-a8b9-2364af7535e5",
-    "elapsed_s": 21.5,
+    "order_id": "bb46befb-3d02-4e44-9f30-1ef8b6c81e9a",
+    "elapsed_s": 21.56,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [
@@ -394,36 +421,39 @@
         "status": "REPAIRED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "grayscale-b",
     "split": "held-out",
-    "order_id": "de5c4eb1-c9f7-4ebf-b59d-456876845302",
-    "elapsed_s": 15.61,
+    "order_id": "bdcc7d3c-6b44-4e48-8285-fb8f604db50d",
+    "elapsed_s": 15.33,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "cmyk-b",
     "split": "held-out",
-    "order_id": "d7960952-897a-4fff-9b7b-b051b3504913",
-    "elapsed_s": 15.51,
+    "order_id": "662ffb74-f45b-431a-bf8d-a8d263486972",
+    "elapsed_s": 15.34,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "mixed-issues-b",
     "split": "held-out",
-    "order_id": "01921e07-98c1-4a54-8a80-6c273e7865eb",
-    "elapsed_s": 18.62,
+    "order_id": "76b503a5-d761-4d19-aa60-35ee22088b7f",
+    "elapsed_s": 18.5,
     "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [
@@ -433,39 +463,43 @@
         "status": "REJECTED"
       }
     ],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "ppi-boundary-held-out-299",
     "split": "held-out",
-    "order_id": "8fc42781-3f5f-4b9c-953e-d9893120b60f",
-    "elapsed_s": 12.39,
-    "final_artwork_status": "BLOCKED",
+    "order_id": "77018c5f-febc-48b7-97ba-5c83fad46e94",
+    "elapsed_s": 16.44,
+    "final_artwork_status": "NEEDS_REVIEW",
     "final_proof_status": "NOT_PREPARED",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": false
   },
   {
     "id": "ppi-boundary-held-out-300",
     "split": "held-out",
-    "order_id": "03dcd707-8660-4b82-85e9-e570f97c2c4a",
-    "elapsed_s": 15.5,
+    "order_id": "6ae574e9-b1ab-4eb5-8369-e7376436eb1c",
+    "elapsed_s": 15.38,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   },
   {
     "id": "ppi-boundary-held-out-301",
     "split": "held-out",
-    "order_id": "5b1ea387-92d1-4a09-9f54-040a9ca68d4b",
-    "elapsed_s": 15.38,
+    "order_id": "adcd6129-af3e-498a-8e68-5354b59aea62",
+    "elapsed_s": 15.39,
     "final_artwork_status": "RESOLVED",
     "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
     "repairs": [],
+    "total_tokens": 0,
     "timed_out": false,
     "reached_resolved": true
   }

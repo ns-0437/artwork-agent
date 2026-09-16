@@ -689,6 +689,9 @@ func (w *Worker) logAgentAttempt(ctx context.Context, orderID string, decision a
 		if decision.Question != "" {
 			detail["model_suggested_question"] = decision.Question
 		}
+		if decision.TokenUsage.TotalTokens > 0 {
+			detail["token_usage"] = decision.TokenUsage
+		}
 	}
 	if err := w.Store.LogAgentToolEvent(ctx, orderID, "tool_call", toolEventDetail(detail)); err != nil {
 		log.Printf("order %s: failed to log agent tool_event: %v", orderID, err)

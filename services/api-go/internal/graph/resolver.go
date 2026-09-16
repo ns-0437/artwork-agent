@@ -107,3 +107,12 @@ func clarificationToMap(c *store.Clarification) map[string]interface{} {
 	}
 	return m
 }
+
+func toolEventToMap(e *store.ToolEvent) map[string]interface{} {
+	return map[string]interface{}{
+		"id":        e.ID,
+		"eventType": e.EventType,
+		"detail":    e.Detail,
+		"createdAt": fmtTime(e.CreatedAt),
+	}
+}

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -140,4 +141,52 @@ func (s *Store) ConfirmTrim(ctx context.Context, orderID string, artworkIsTrimOn
 		return false, err
 	}
 	return tag.RowsAffected() > 0, nil
+}
+
+// EscalateCase is a direct, non-agent path to the same NEEDS_REVIEW + reason
+// state transition CompleteAgentDecision's escalate branch applies for the
+// agent loop (point 4 - "escalation is a real, persisted state transition")
+// - here callable by ANY client (a scripted ops workflow, a future human
+// reviewer action) with a rule-based reason of its own, not just the agent.
+// This exists specifically so a deterministic script can escalate a case
+// nothing else about it resolves, rather than leaving it silently BLOCKED
+// forever - see evals/scripts/run_eval.py's --mode scripted.
+//
+// Refuses to escalate a case already RESOLVED (case_version guard plus an
+// explicit status check) - escalation is for a case with an actual
+// unresolved blocker, not a way to walk back a completed one. The reason is
+// logged to tool_events for the same audit trail the agent's own escalation
+// attempts already write to.
+func (s *Store) EscalateCase(ctx context.Context, orderID, reason string, expectedCaseVersion int) (bool, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE orders SET artwork_status = 'NEEDS_REVIEW', case_version = case_version + 1, updated_at = now()
+		WHERE id = $1 AND case_version = $2 AND artwork_status != 'RESOLVED'
+	`, orderID, expectedCaseVersion)
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+
+	detailJSON, err := json.Marshal(map[string]interface{}{"source": "script", "action": "escalate", "reason": reason})
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO tool_events (order_id, event_type, detail) VALUES ($1, 'tool_call', $2::jsonb)
+	`, orderID, string(detailJSON)); err != nil {
+		return false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }

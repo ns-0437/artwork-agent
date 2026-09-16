@@ -73,6 +73,20 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 		},
 	})
 
+	// Audit-trail only (CLAUDE.md's LogAgentToolEvent comment) - exposed so
+	// the eval harness can aggregate provider token usage per order for the
+	// agent-vs-scripted cost comparison, and generally as the audit trail
+	// the brief asks for. Never load-bearing for any decision.
+	toolEventType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "ToolEvent",
+		Fields: graphql.Fields{
+			"id":        &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+			"eventType": &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"detail":    &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"createdAt": &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+		},
+	})
+
 	orderType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "Order",
 		Fields: graphql.Fields{
@@ -111,6 +125,10 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 			"repairs": &graphql.Field{
 				Type:    graphql.NewList(repairType),
 				Resolve: r.resolveOrderRepairs,
+			},
+			"toolEvents": &graphql.Field{
+				Type:    graphql.NewList(toolEventType),
+				Resolve: r.resolveOrderToolEvents,
 			},
 		},
 	})
@@ -189,6 +207,20 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 					"caseVersion":       &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Int)},
 				},
 				Resolve: r.resolveConfirmTrim,
+			},
+			// A direct, non-agent path to NEEDS_REVIEW + reason - lets a
+			// deterministic scripted workflow (or a future human reviewer
+			// action) escalate a case nothing else resolves, the same
+			// capability the agent's own escalate action already has (see
+			// store.EscalateCase).
+			"escalateCase": &graphql.Field{
+				Type: graphql.NewNonNull(orderType),
+				Args: graphql.FieldConfigArgument{
+					"orderId":     &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
+					"reason":      &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
+					"caseVersion": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Int)},
+				},
+				Resolve: r.resolveEscalateCase,
 			},
 			// answerClarification and requestRepair are declared now so the
 			// schema is frozen from Day 1, per the brief - they are wired up

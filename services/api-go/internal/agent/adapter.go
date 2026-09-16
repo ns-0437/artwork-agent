@@ -33,6 +33,21 @@ type DecisionInput struct {
 type Decision struct {
 	Action   string
 	Question string // set only when Action == "ask_clarification"
+
+	// TokenUsage is the provider's own reported token accounting for this
+	// call, when it reports one (zero value if not) - logged to
+	// tool_events purely for cost observability (evals/scripts/run_eval.py
+	// aggregates it for the agent-vs-scripted cost comparison). Never used
+	// for anything budget/decision-relevant - that's agent_tool_calls_used/
+	// agent_retries_used (point 6), which are enforced regardless of
+	// whether a provider reports usage at all.
+	TokenUsage TokenUsage
+}
+
+type TokenUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 const (

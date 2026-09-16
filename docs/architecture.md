@@ -135,27 +135,32 @@ A further review pass found four gaps in edge cases the first hardening pass had
 
 Grading re-reads actual bytes from the storage backend (via the GraphQL-exposed `Asset.storageKey`) rather than trusting database metadata: the original asset's hash is re-verified against the source file, a repaired canvas's trim region is independently pixel-compared against the original (outside the system's own `verify_repair` check), and every proof asset is confirmed to actually decode as an image. A run that times out is failed outright regardless of what the last snapshot showed; any unexpected `FAILED` job, or a repair attempted on a fixture nothing about it calls for, fails the fixture.
 
+`--mode scripted` also has a deterministic escalation fallback (`store.EscalateCase`, a new mutation): if neither confirming trim nor requesting repair resolves the case, the script escalates with a fixed rule-based reason - added after an initial version of this comparison was reviewed and found unfair for omitting it (a script with no way to give up on a case will always look worse than the agent purely for lacking an escalation path, regardless of whether either one's actual *decisions* differ). `agent.Decision.TokenUsage` (Groq's own reported token accounting, logged to `tool_events`, exposed via `Order.toolEvents`) gives a zero-guesswork cost signal: nonzero for the agent, always exactly zero for baseline/scripted, since no provider call happens there.
+
 ### Results (first frozen pass, this fixture set)
 
-| Mode | n | RESOLVED | NEEDS_REVIEW | BLOCKED | avg latency |
-|---|---|---|---|---|---|
-| agent (Groq) | 34 | 18 | 16 | 0 | 17.9s |
-| baseline (rules only, no agent) | 34 | 12 | 14 | 8 | 14.5s |
-| scripted (rules + deterministic script, no LLM) | 34 | 18 | 10 | 6 | 17.3s |
+| Mode | n | RESOLVED | NEEDS_REVIEW | BLOCKED | avg latency | tokens |
+|---|---|---|---|---|---|---|
+| agent (Groq) | 34 | 18 | 16 | 0 | 18.3s | 19,650 |
+| baseline (rules only, no agent, no script) | 34 | 12 | 14 | 8 | 14.8s | 0 |
+| scripted (rules + deterministic script, incl. escalation fallback) | 34 | 18 | 16 | 0 | 17.9s | 0 |
 
-Agent: **34/34 passed** (16/16 dev, 18/18 held-out), 0 timed out, 0 falsely-resolved held-out cases, 0 unexpected job failures. Every one of the 6 cases that reached `RESOLVED` via repair had its trim region independently pixel-verified against the original (`repair_trim_pixels_identical: true`); every one of the 18 `RESOLVED` cases had its proof asset independently confirmed to open as a valid image; every one of the 34 cases had its original asset's stored bytes re-read and re-hashed against the uploaded file.
+Agent: **34/34 evaluation cases passed** (16/16 dev, 18/18 held-out) - **not** the same claim as "34/34 orders resolved": only **18/34 orders actually reached `RESOLVED`**, the rest correctly ended at `NEEDS_REVIEW` (16) and passed evaluation on that basis. 0 timed out, 0 falsely-resolved held-out cases, 0 unexpected job failures. Every one of the 6 cases that reached `RESOLVED` via repair had its trim region independently pixel-verified against the original (`repair_trim_pixels_identical: true`); every one of the 18 `RESOLVED` cases had its proof asset independently confirmed to open as a valid image; every one of the 34 cases had its original asset's stored bytes re-read and re-hashed against the uploaded file.
 
-**What this shows about the agent's value:**
-- **Rules alone leave 8 cases silently `BLOCKED` forever** (anything needing trim confirmation or an eligible repair, with nothing ever proposing one) - having *either* the agent or a script drive the same tool calls resolves 6 more cases (18 vs. 12).
-- **Agent and scripted resolve the identical set of cases** (18/18 match, per-fixture) - for this fixture set, the LLM's decisions never did anything a hand-written script wouldn't have. The agent's incremental value here is not "smarter outcomes" but **escalation the script doesn't have**: 6 fixtures (`clean-a`, `lowres-a`, `clean-full-bleed-b`, `lowres-b`, `ppi-boundary-*-299` ×2) end at `NEEDS_REVIEW` with the agent but `BLOCKED` with the script, because the script (as built) only knows how to *act* (confirm trim, request repair) - it has no "give up and flag this for a human, with a reason" behavior. The agent's `escalate` action is what actually converts a silently-stuck case into an actioned one with an audit trail.
-- **`mixed-issues-a`/`-b`'s outcome is not directly comparable to a fixed expectation** - see `evals/CHANGES.md`: the model's own choice (attempt-and-reject a repair vs. escalate directly) varies run to run and was the basis for relaxing that fixture's assertion, so `mixed-issues-b`'s result here is not blind held-out evidence, only a passing regression check.
+**What this shows, once the scripted comparison was made fair:**
+- **Rules alone leave 8/34 cases silently `BLOCKED` forever** - nothing ever proposes a next step for a case needing trim confirmation, an eligible repair, or a "give up and flag this" decision. Having *either* the agent or a script that can act AND escalate closes all 8.
+- **Agent and scripted matched EXACTLY, fixture for fixture, on all 34 cases** once the script was given the same escalation capability (18 resolved / 16 escalated / 0 stuck, identically) - zero mismatches. The LLM's decisions never did anything a hand-written deterministic rule ("if nothing else applies, escalate with a reason") wouldn't have, for this fixture set. An earlier pass in this same project reported the agent "escalating 6 cases a script left `BLOCKED`" - that was measuring "has an escalation path" vs. "doesn't," not a difference in judgment; it's corrected here.
+- **This is not evidence that AI improves resolution over a well-designed deterministic workflow** - for this fixture set, it doesn't. The LLM component's value is a single, swappable decision point available for genuinely ambiguous judgment calls a fixed rule set can't anticipate; this fixture set doesn't happen to exercise that difference.
+- **`mixed-issues-a`/`-b`'s outcome is not blind held-out evidence** - see `evals/CHANGES.md`: the fixture's assertion was relaxed after observing the model's actual behavior in an early run, so it's a valid regression check but not independent confirmation of generalization.
 
 **Honest boundaries on this pass:**
 - This is 34 fixtures generated by this same project, not an independent test set - "release targets, not results," per the brief.
-- Four held-out fixtures are deliberately withheld from every run above (`reserved_for_frozen_report: true`) for a genuinely blind pass later.
+- Four held-out fixtures are deliberately withheld from every run above (`reserved_for_frozen_report: true`) for a genuinely blind pass, reported separately as a small fresh check.
 - The crash-recovery tests behind this system's durability claims are simulated crash *states*, not an actual killed process (CLAUDE.md points 21/48) - a real process-kill test remains undone.
 - The GCS storage backend (`internal/storage/gcs.go`) builds and passes `go test` but has not been run against a live bucket.
-- Cost-per-case and a Grok/Claude comparison are not measured - out of scope for this pass given the brief's own "defer this comparison before compromising reliability."
+- No dollar cost figure or Grok/Claude comparison is included - out of scope for this pass given the brief's own "defer this comparison before compromising reliability."
+
+See `docs/case_study.md` for the full narrative writeup of this project, framed around the engineering evidence (durable execution, verified repair, a correctly-scoped clarification loop, real proof generation, and this measurement process itself) rather than an AI-resolution claim.
 
 ## Known gaps (tracked, not yet fixed)
 
