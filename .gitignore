@@ -10,6 +10,7 @@ venv/
 *.db
 *.sqlite
 .DS_Store
+*.tsbuildinfo
 
 # LocalDisk's default dev storage dir (internal/storage - see .env.example's
 # STORAGE_LOCAL_DIR) when running services.api-go outside Docker.
