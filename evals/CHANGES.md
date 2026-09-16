@@ -77,8 +77,27 @@ silently folded into what a report later calls "held-out results."
 
 `evals/fixtures/held-out/fresh-*` (manifest entries with
 `"reserved_for_frozen_report": true`) were added after the correction
-above and have not been run through any mode of the harness as of this
-commit - not dev-tuned, not behavior-corrected, not previously observed in
-any form. These are the genuinely blind evidence a frozen held-out report
-should lead with; the rest of the held-out split is useful regression
-coverage but carries the caveats documented above.
+above and had not been run through any mode of the harness until the run
+logged below - not dev-tuned, not behavior-corrected, not previously
+observed in any form up to that point.
+
+## Reserved fixtures run (the one and only genuinely blind pass)
+
+Run once, `--mode agent --include-reserved --reserved-only`, AFTER the
+scripted-comparison fairness fix (escalation fallback + separate passed/
+resolved metrics) was frozen - not before, and not re-run since. Result:
+**4/4 evaluation cases passed, 2/4 orders resolved** (`fresh-clean-c`,
+`fresh-missing-bleed-c` resolved via repair; `fresh-textured-edge-c`,
+`fresh-lowres-c` correctly escalated to `NEEDS_REVIEW`), 0 falsely-resolved,
+0 timed out - see `evals/results/eval_results_agent_reserved.json`.
+
+**This is a small fresh check (n=4), not broad proof of reliability** - it
+confirms the same pattern the 34-fixture set showed held on fixtures the
+system had never seen in any form, nothing more. Report it as its own
+line, separate from the 34-fixture numbers, in any summary - folding n=4
+into "38 fixtures, X passed" would misrepresent four data points as
+comparable in weight to thirty.
+
+These fixtures are no longer reserved as of this run - they've been
+observed now, and any future re-run of them is a regression check, not
+blind evidence, exactly like the rest of the held-out split.

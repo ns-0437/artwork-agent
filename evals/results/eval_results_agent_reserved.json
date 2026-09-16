@@ -1,0 +1,110 @@
+[
+  {
+    "id": "fresh-clean-c",
+    "split": "held-out",
+    "order_id": "95db3693-4615-4397-83a2-90794886c58c",
+    "elapsed_s": 15.61,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [],
+    "total_tokens": 0,
+    "expected_artwork_status": "RESOLVED",
+    "expected_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "checks": {
+      "not_timed_out": true,
+      "no_unexpected_job_failures": true,
+      "artwork_status": true,
+      "proof_status": true,
+      "original_asset_unaltered": true,
+      "no_repair_attempted": true,
+      "proof_openable": true
+    },
+    "passed": true,
+    "timed_out": false,
+    "resolved": true
+  },
+  {
+    "id": "fresh-missing-bleed-c",
+    "split": "held-out",
+    "order_id": "9bdb5a32-f2ac-49fb-af3f-65846be2d60e",
+    "elapsed_s": 20.64,
+    "final_artwork_status": "RESOLVED",
+    "final_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "repairs": [
+      {
+        "diagnosis": "{\"margin_px\": 19, \"trim_x_px\": 19, \"trim_y_px\": 19, \"edge_color\": [205, 130, 60], \"effective_ppi\": 300, \"trim_width_px\": 900, \"trim_height_px\": 900}",
+        "reason": null,
+        "status": "REPAIRED"
+      }
+    ],
+    "total_tokens": 852,
+    "expected_artwork_status": "RESOLVED",
+    "expected_proof_status": "AWAITING_CUSTOMER_APPROVAL",
+    "checks": {
+      "not_timed_out": true,
+      "no_unexpected_job_failures": true,
+      "artwork_status": true,
+      "proof_status": true,
+      "original_asset_unaltered": true,
+      "repair_status": true,
+      "repair_trim_pixels_identical": true,
+      "proof_openable": true
+    },
+    "passed": true,
+    "timed_out": false,
+    "resolved": true
+  },
+  {
+    "id": "fresh-textured-edge-c",
+    "split": "held-out",
+    "order_id": "5446404f-2f38-4d9f-ba5c-ac61377c91ca",
+    "elapsed_s": 20.78,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [
+      {
+        "diagnosis": null,
+        "reason": "edge band is not a uniform color - gradient, texture, or foreground content touches the boundary",
+        "status": "REJECTED"
+      }
+    ],
+    "total_tokens": 799,
+    "expected_artwork_status": "NEEDS_REVIEW",
+    "expected_proof_status": "NOT_PREPARED",
+    "checks": {
+      "not_timed_out": true,
+      "no_unexpected_job_failures": true,
+      "artwork_status": true,
+      "proof_status": true,
+      "original_asset_unaltered": true,
+      "repair_status": true,
+      "repair_reason": true
+    },
+    "passed": true,
+    "timed_out": false,
+    "resolved": false
+  },
+  {
+    "id": "fresh-lowres-c",
+    "split": "held-out",
+    "order_id": "3615a5cf-2a68-4a56-bf40-5f188928fa67",
+    "elapsed_s": 15.44,
+    "final_artwork_status": "NEEDS_REVIEW",
+    "final_proof_status": "NOT_PREPARED",
+    "repairs": [],
+    "total_tokens": 656,
+    "expected_artwork_status": "NEEDS_REVIEW",
+    "expected_proof_status": "NOT_PREPARED",
+    "checks": {
+      "not_timed_out": true,
+      "no_unexpected_job_failures": true,
+      "artwork_status": true,
+      "proof_status": true,
+      "original_asset_unaltered": true,
+      "no_repair_attempted": true
+    },
+    "passed": true,
+    "timed_out": false,
+    "resolved": false
+  }
+]

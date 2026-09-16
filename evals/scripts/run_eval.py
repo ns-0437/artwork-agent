@@ -500,10 +500,17 @@ def main():
              "reason other than the actual frozen held-out report pass destroys their value as blind evidence - "
              "if you pass this flag outside that pass, log why in evals/CHANGES.md.",
     )
+    parser.add_argument(
+        "--reserved-only", action="store_true",
+        help="Run ONLY the fixtures marked reserved_for_frozen_report, as their own small, separate report - "
+             "the genuinely blind final pass evals/CHANGES.md describes, not folded into the main 34-fixture set.",
+    )
     args = parser.parse_args()
 
     manifest = json.loads((ROOT / "fixtures" / "manifest.json").read_text())
-    if args.fixture_id:
+    if args.reserved_only:
+        manifest = [f for f in manifest if f.get("reserved_for_frozen_report")]
+    elif args.fixture_id:
         manifest = [f for f in manifest if f["id"] == args.fixture_id]
     elif not args.include_reserved:
         reserved = [f["id"] for f in manifest if f.get("reserved_for_frozen_report")]
@@ -524,7 +531,8 @@ def main():
 
     results_dir = ROOT / "results"
     results_dir.mkdir(exist_ok=True)
-    out_path = results_dir / f"eval_results_{args.mode}.json"
+    suffix = "_reserved" if args.reserved_only else ""
+    out_path = results_dir / f"eval_results_{args.mode}{suffix}.json"
     out_path.write_text(json.dumps(results, indent=2))
     print(f"\nwrote {out_path.relative_to(ROOT.parent)}")
 
