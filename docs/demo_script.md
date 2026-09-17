@@ -26,7 +26,7 @@ Matches the build brief's demo structure. Every beat below was rehearsed live ag
 
 12. Say (no need to actually kill a process on camera - reference the written evidence instead): "Every step here - inspect, the agent's decision, a repair, proof preparation - is its own durable job in Postgres, enqueued in the same transaction as the state change that produces it. I verified this by hand-reproducing the exact database and storage state a crash mid-write would leave, twice, and confirming a fresh worker process resumes correctly with no duplicated work - documented honestly as a simulated crash state, not an actual killed process, in `CLAUDE.md` points 21 and 48."
 13. Show (screen share or a slide) the results table from `docs/case_study.md`: **34/34 evaluation cases passed, 18/34 orders resolved** - two different numbers, reported separately. Once a deterministic script was given the same escalation capability the agent has, **it matched the agent exactly on all 34 cases**, at zero token cost.
-14. Close with the framing: *"I built and evaluated an artwork exception-resolution workflow. The agent matched a deterministic implementation on the tested cases, so I would favor the scripted path for this scope while retaining the agent version for further evaluation."*
+14. Close with the framing: *"I built and deployed a durable artwork exception-resolution workflow. My evaluation found that a deterministic script matched the agent on the tested cases, so I would favor the scripted path for this scope while retaining the agent version for further evaluation."*
 
 ## Fallback if recording doesn't go well
 
