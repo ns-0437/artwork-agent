@@ -11,6 +11,13 @@ metadata:
     run.googleapis.com/ingress: all
 spec:
   template:
+    metadata:
+      annotations:
+        # Bounds worst-case Cloud Run compute cost from a traffic spike or
+        # abuse against this unauthenticated public endpoint - default
+        # Cloud Run autoscaling has no ceiling. 5 is generous for a
+        # portfolio demo's expected concurrency.
+        autoscaling.knative.dev/maxScale: "5"
     spec:
       containers:
         - image: asia-south1-docker.pkg.dev/artwork-agent-demo/artwork-agent/api-go:latest
@@ -35,6 +42,12 @@ spec:
               value: https://artwork-agent-api-619767309039.asia-south1.run.app
             - name: IMAGE_SERVICE_URL
               value: https://artwork-agent-image-python-619767309039.asia-south1.run.app # private ingress, see image-python-service.yaml
+            - name: MAX_DEMO_ORDERS
+              # No auth on this public deployment (CLAUDE.md's known gap) -
+              # this bounds worst-case Groq/GCS/Neon cost from unbounded
+              # anonymous writes, enforced in store.CreateOrder, not left to
+              # documentation alone. Local dev leaves this unset (unlimited).
+              value: "150"
           resources:
             limits:
               cpu: "1"

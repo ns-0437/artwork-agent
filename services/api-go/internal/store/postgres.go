@@ -8,6 +8,10 @@ import (
 
 type Store struct {
 	Pool *pgxpool.Pool
+	// MaxOrders caps total orders CreateOrder will accept - 0 (the
+	// zero value) means unlimited, matching local dev's default. See
+	// ErrOrderLimitReached.
+	MaxOrders int
 }
 
 func NewStore(ctx context.Context, dsn string) (*Store, error) {

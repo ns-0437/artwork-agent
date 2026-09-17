@@ -29,6 +29,13 @@ metadata:
     run.googleapis.com/ingress: all
 spec:
   template:
+    metadata:
+      annotations:
+        # Same reasoning as api-go-service.yaml's maxScale - bounds
+        # worst-case compute cost, IAM auth means only api-go/worker can
+        # reach this anyway, but their own traffic is bounded by api-go's
+        # own maxScale=5.
+        autoscaling.knative.dev/maxScale: "5"
     spec:
       containers:
         - image: asia-south1-docker.pkg.dev/artwork-agent-demo/artwork-agent/image-python:latest

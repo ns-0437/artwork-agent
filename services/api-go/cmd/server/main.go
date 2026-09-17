@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/ns-0437/artwork-agent/services/api-go/internal/graph"
 	"github.com/ns-0437/artwork-agent/services/api-go/internal/storage"
@@ -28,6 +29,17 @@ func main() {
 		log.Fatalf("failed to connect to postgres: %v", err)
 	}
 	defer st.Close()
+
+	// Unset (0/unlimited) is the correct default for local dev - the public
+	// deployment sets MAX_DEMO_ORDERS explicitly (see infra/gcp/api-go-service.yaml)
+	// to bound cost exposure from unauthenticated writes (CLAUDE.md's known gap).
+	if v := os.Getenv("MAX_DEMO_ORDERS"); v != "" {
+		max, err := strconv.Atoi(v)
+		if err != nil {
+			log.Fatalf("invalid MAX_DEMO_ORDERS %q: %v", v, err)
+		}
+		st.MaxOrders = max
+	}
 
 	disk, err := storage.NewFromEnv(ctx)
 	if err != nil {

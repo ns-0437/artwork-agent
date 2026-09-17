@@ -3,9 +3,17 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
 )
+
+// ErrOrderLimitReached is returned by CreateOrder once the total order
+// count reaches Store.MaxOrders - the public deployment has no
+// authentication (CLAUDE.md's known gap), so this bounds worst-case cost
+// (Groq calls, GCS storage, Cloud Run compute, Neon rows) from unbounded
+// anonymous writes rather than leaving it to documentation alone.
+var ErrOrderLimitReached = errors.New("this portfolio demo has reached its order limit (kept low to bound hosting cost on an unauthenticated public deployment) - run it locally via docker-compose (see the README) for unlimited testing")
 
 const orderColumns = `id, owner_id, product_type, declared_width, declared_height, declared_unit,
 	customer_request, artwork_version, intent, artwork_is_trim_only, current_asset_id, trim_x_px, trim_y_px, trim_width_px, trim_height_px,
@@ -22,6 +30,15 @@ type CreateOrderInput struct {
 }
 
 func (s *Store) CreateOrder(ctx context.Context, in CreateOrderInput) (*Order, error) {
+	if s.MaxOrders > 0 {
+		var count int
+		if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM orders`).Scan(&count); err != nil {
+			return nil, err
+		}
+		if count >= s.MaxOrders {
+			return nil, ErrOrderLimitReached
+		}
+	}
 	row := s.Pool.QueryRow(ctx, `
 		INSERT INTO orders (owner_id, product_type, declared_width, declared_height, declared_unit, customer_request, intent)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
