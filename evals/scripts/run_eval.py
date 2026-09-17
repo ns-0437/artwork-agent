@@ -567,8 +567,19 @@ def main():
 
     results_dir = ROOT / "results"
     results_dir.mkdir(exist_ok=True)
-    suffix = "_reserved" if args.reserved_only else ""
-    out_path = results_dir / f"eval_results_{args.mode}{suffix}.json"
+    if args.fixture_id:
+        # A single-fixture debug run must never land on the same path a
+        # full run (or the frozen `eval-frozen-day5` tag's own recorded
+        # state) uses - it already did once, silently overwriting
+        # eval_results_agent.json until `git checkout` restored it. This
+        # subdirectory makes that impossible by construction rather than
+        # relying on remembering not to.
+        debug_dir = results_dir / "debug"
+        debug_dir.mkdir(exist_ok=True)
+        out_path = debug_dir / f"eval_results_{args.mode}_{args.fixture_id}.json"
+    else:
+        suffix = "_reserved" if args.reserved_only else ""
+        out_path = results_dir / f"eval_results_{args.mode}{suffix}.json"
     out_path.write_text(json.dumps(results, indent=2))
     print(f"\nwrote {out_path.relative_to(ROOT.parent)}")
 

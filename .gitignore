@@ -16,6 +16,11 @@ venv/
 # STORAGE_LOCAL_DIR) when running services.api-go outside Docker.
 data/artifacts/
 
+# Single-fixture debug runs (run_eval.py --fixture-id) - disposable, and
+# deliberately routed here instead of evals/results/ so they can never
+# collide with a real report file, frozen or otherwise.
+evals/results/debug/
+
 # IDE-local settings, not project config.
 .vscode/
 .idea/
