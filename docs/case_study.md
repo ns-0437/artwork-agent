@@ -76,7 +76,7 @@ Cloud Run service configs for the API, the (IAM-gated) image service, and the wo
 
 ## Known, tracked gaps
 
-- No authentication or ownership check on orders (`ownerId` is a free-text, unverified client field) - dev ports are bound to `127.0.0.1` specifically because of this. The live deployment bounds cost exposure from this (`MAX_DEMO_ORDERS`, Cloud Run `maxScale`) rather than closing it - a usage limit, not real ownership checks.
+- No authentication or ownership check on orders (`ownerId` is a free-text, unverified client field) - dev ports are bound to `127.0.0.1` specifically because of this. The live deployment sets `READ_ONLY_DEMO=true` (every mutation rejected server-side) rather than closing this - a read-only boundary, not real ownership checks.
 - Upload tickets are replayable until they expire (10 minutes) rather than enforced single-use.
 
 See `docs/architecture.md` for the day-by-day technical build log and `CLAUDE.md` for the full list of load-bearing constraints and the fixes each one addresses.

@@ -16,7 +16,7 @@ was checked. Everything below reflects what was actually done, not a plan.
 - **Storage**: a GCS bucket (`artwork-agent-demo-artifacts`) with a 7-day object deletion lifecycle, matching the brief's "seven-day deletion" security essential.
 - **Secrets**: `artwork-agent-database-url`, `artwork-agent-upload-signing-secret`, `artwork-agent-groq-api-key` in Secret Manager, each with `roles/secretmanager.secretAccessor` granted only to the project's default compute service account (the one api-go/worker actually run as) - not broader.
 - **Images**: built via `gcloud builds submit` and pushed to an Artifact Registry repo (`artwork-agent`, `asia-south1`). `api-go` and `worker` share one image (two binaries, selected by `command:` in each service's YAML) - `services/api-go/Dockerfile` builds both.
-- **Cost/abuse boundary**: no auth (see "Known, still-open gaps" below) means this is a public, unauthenticated write surface, so it's bounded rather than left to documentation alone - `api-go-service.yaml` sets `MAX_DEMO_ORDERS=150` (enforced in `store.CreateOrder`, returns a clear error past the cap) and every service caps `autoscaling.knative.dev/maxScale` at 5.
+- **Write boundary**: no auth (see "Known, still-open gaps" below) means this is a public, unauthenticated write surface, so `api-go-service.yaml` sets `READ_ONLY_DEMO=true` - `graph.Resolver.guarded` rejects all 7 mutations server-side before their own logic runs, reads stay open, no credentials in the frontend bundle. `MAX_DEMO_ORDERS=150` (`store.CreateOrder`) is a secondary cap on order *creation* only, not a substitute for the read-only gate. `autoscaling.knative.dev/maxScale: 5` on every service caps concurrent instances, not total request volume or spend - a parallelism limit, not a cost ceiling.
 
 ## Gaps found only by actually deploying (fixed here, not hidden)
 
@@ -31,5 +31,5 @@ was checked. Everything below reflects what was actually done, not a plan.
 ## Known, still-open gaps
 
 - **The worker isn't a real Cloud Run Job** - see `worker-service.yaml`'s comment.
-- **Owner/authentication is still absent** (CLAUDE.md's known gap) - `ownerId` remains a client-supplied, unverified field. `MAX_DEMO_ORDERS` bounds cost exposure from that; it does not restore ownership checks or privacy - anyone with the URL can view or mutate any order.
+- **Owner/authentication is still absent** (CLAUDE.md's known gap) - `ownerId` remains a client-supplied, unverified field. `READ_ONLY_DEMO=true` stops the live deployment's writes, and reads remain open (anyone with the URL can view any order's data) - a read-only boundary, not real per-owner access control.
 - **This is a single-instance portfolio demo**, not a load-bearing service - it isn't designed or expected to hold up under sustained traffic.
