@@ -6,8 +6,10 @@
 package graph
 
 import (
+	"errors"
 	"time"
 
+	"github.com/graphql-go/graphql"
 	"github.com/ns-0437/artwork-agent/services/api-go/internal/store"
 	"github.com/ns-0437/artwork-agent/services/api-go/internal/upload"
 )
@@ -15,6 +17,32 @@ import (
 type Resolver struct {
 	Store   *store.Store
 	Uploads *upload.Manager
+
+	// ReadOnly, when true, rejects every mutation before it reaches its
+	// real resolver - see guarded(). There's no authentication on this
+	// API (a known, documented gap), so the public deployment sets this
+	// true rather than leaving unauthenticated writes open: an order
+	// creation cap alone still let anyone repeatedly mutate/re-process
+	// ANY existing order, capped or not. Local dev leaves this false.
+	ReadOnly bool
+}
+
+// ErrReadOnlyDemo is what every mutation returns when Resolver.ReadOnly is
+// true - a single, honest message rather than a per-mutation guess at
+// what to say.
+var ErrReadOnlyDemo = errors.New("this public demo is read-only - no writes are accepted here (no auth on this API, so this is enforced server-side, not left to the frontend). Run it locally via docker-compose (see the README) to test the full interactive flow, or watch the recorded demo")
+
+// guarded wraps a mutation resolver so Resolver.ReadOnly is checked in
+// exactly one place, before any of the 7 mutation fields' own logic runs -
+// adding an 8th mutation later means wrapping it here too, not trusting
+// each resolver to remember.
+func (r *Resolver) guarded(fn graphql.FieldResolveFn) graphql.FieldResolveFn {
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		if r.ReadOnly {
+			return nil, ErrReadOnlyDemo
+		}
+		return fn(p)
+	}
 }
 
 func fmtTime(t time.Time) string { return t.Format(time.RFC3339) }

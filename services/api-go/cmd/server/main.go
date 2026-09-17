@@ -50,7 +50,18 @@ func main() {
 	baseURL := envOr("API_BASE_URL", "http://localhost:8080")
 	uploads := upload.NewManager([]byte(uploadSecret), disk, st, baseURL)
 
-	resolver := &graph.Resolver{Store: st, Uploads: uploads}
+	// No auth on this API (a known, documented gap) - the public deployment
+	// sets READ_ONLY_DEMO=true (see infra/gcp/api-go-service.yaml) so every
+	// mutation is rejected server-side, not left to an order-count cap
+	// alone (which only bounds creation, not repeated writes/reprocessing
+	// against any EXISTING order) or to the frontend not offering the
+	// buttons. Local dev leaves this unset/false.
+	readOnly, err := strconv.ParseBool(envOr("READ_ONLY_DEMO", "false"))
+	if err != nil {
+		log.Fatalf("invalid READ_ONLY_DEMO: %v", err)
+	}
+
+	resolver := &graph.Resolver{Store: st, Uploads: uploads, ReadOnly: readOnly}
 	schema, err := graph.NewSchema(resolver)
 	if err != nil {
 		log.Fatalf("failed to build graphql schema: %v", err)

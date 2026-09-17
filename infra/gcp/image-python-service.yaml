@@ -31,10 +31,11 @@ spec:
   template:
     metadata:
       annotations:
-        # Same reasoning as api-go-service.yaml's maxScale - bounds
-        # worst-case compute cost, IAM auth means only api-go/worker can
-        # reach this anyway, but their own traffic is bounded by api-go's
-        # own maxScale=5.
+        # Same reasoning as api-go-service.yaml's maxScale - caps
+        # concurrent instances, not total spend. IAM auth means only
+        # api-go/worker can reach this anyway, and api-go is read-only by
+        # default (READ_ONLY_DEMO), which bounds this service's own
+        # traffic far more than an instance-count cap does.
         autoscaling.knative.dev/maxScale: "5"
     spec:
       containers:

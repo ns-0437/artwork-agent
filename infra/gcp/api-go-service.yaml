@@ -13,10 +13,11 @@ spec:
   template:
     metadata:
       annotations:
-        # Bounds worst-case Cloud Run compute cost from a traffic spike or
-        # abuse against this unauthenticated public endpoint - default
-        # Cloud Run autoscaling has no ceiling. 5 is generous for a
-        # portfolio demo's expected concurrency.
+        # Caps concurrent Cloud Run INSTANCES (parallelism), not total
+        # request volume or spend over time - default Cloud Run autoscaling
+        # has no instance ceiling. Read-only mode (READ_ONLY_DEMO below) is
+        # what actually stops sustained cost from repeated writes; this
+        # only bounds how many requests can be served in parallel.
         autoscaling.knative.dev/maxScale: "5"
     spec:
       containers:
@@ -42,11 +43,20 @@ spec:
               value: https://artwork-agent-api-619767309039.asia-south1.run.app
             - name: IMAGE_SERVICE_URL
               value: https://artwork-agent-image-python-619767309039.asia-south1.run.app # private ingress, see image-python-service.yaml
-            - name: MAX_DEMO_ORDERS
+            - name: READ_ONLY_DEMO
               # No auth on this public deployment (CLAUDE.md's known gap) -
-              # this bounds worst-case Groq/GCS/Neon cost from unbounded
-              # anonymous writes, enforced in store.CreateOrder, not left to
-              # documentation alone. Local dev leaves this unset (unlimited).
+              # an order-count cap alone still let anyone repeatedly
+              # mutate/re-process any EXISTING order, unbounded. This
+              # rejects every mutation server-side (graph.Resolver.guarded)
+              # rather than relying on the frontend not offering write
+              # buttons. Set to "false" only temporarily, to record the
+              # live demo's write flow - true the rest of the time.
+              value: "true"
+            - name: MAX_DEMO_ORDERS
+              # Secondary defense-in-depth for if READ_ONLY_DEMO is ever
+              # toggled off - caps total order CREATION only, does not by
+              # itself restrict writes to existing orders. Local dev leaves
+              # this unset (unlimited).
               value: "150"
           resources:
             limits:

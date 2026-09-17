@@ -182,7 +182,7 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 				Args: graphql.FieldConfigArgument{
 					"input": &graphql.ArgumentConfig{Type: graphql.NewNonNull(createOrderInput)},
 				},
-				Resolve: r.resolveCreateOrder,
+				Resolve: r.guarded(r.resolveCreateOrder),
 			},
 			"createUpload": &graphql.Field{
 				Type: graphql.NewNonNull(uploadTicketType),
@@ -190,14 +190,14 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 					"orderId":     &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
 					"contentType": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
 				},
-				Resolve: r.resolveCreateUpload,
+				Resolve: r.guarded(r.resolveCreateUpload),
 			},
 			"startResolution": &graphql.Field{
 				Type: graphql.NewNonNull(jobType),
 				Args: graphql.FieldConfigArgument{
 					"orderId": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.ID)},
 				},
-				Resolve: r.resolveStartResolution,
+				Resolve: r.guarded(r.resolveStartResolution),
 			},
 			"confirmTrim": &graphql.Field{
 				Type: graphql.NewNonNull(orderType),
@@ -206,7 +206,7 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 					"artworkIsTrimOnly": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Boolean)},
 					"caseVersion":       &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Int)},
 				},
-				Resolve: r.resolveConfirmTrim,
+				Resolve: r.guarded(r.resolveConfirmTrim),
 			},
 			// A direct, non-agent path to NEEDS_REVIEW + reason - lets a
 			// deterministic scripted workflow (or a future human reviewer
@@ -220,7 +220,7 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 					"reason":      &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
 					"caseVersion": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Int)},
 				},
-				Resolve: r.resolveEscalateCase,
+				Resolve: r.guarded(r.resolveEscalateCase),
 			},
 			// answerClarification and requestRepair are declared now so the
 			// schema is frozen from Day 1, per the brief - they are wired up
@@ -232,7 +232,7 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 					"answer":          &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
 					"caseVersion":     &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Int)},
 				},
-				Resolve: r.resolveAnswerClarification,
+				Resolve: r.guarded(r.resolveAnswerClarification),
 			},
 			"requestRepair": &graphql.Field{
 				Type: graphql.NewNonNull(jobType),
@@ -241,7 +241,7 @@ func NewSchema(r *Resolver) (graphql.Schema, error) {
 					"idempotencyKey": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)},
 					"caseVersion":    &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.Int)},
 				},
-				Resolve: r.resolveRequestRepair,
+				Resolve: r.guarded(r.resolveRequestRepair),
 			},
 		},
 	})
