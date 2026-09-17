@@ -66,9 +66,12 @@ The active decision-making provider is **Groq** (a fast inference host for open-
 
 Four held-out fixtures (`fresh-clean-c`, `fresh-missing-bleed-c`, `fresh-textured-edge-c`, `fresh-lowres-c`) were deliberately withheld from every run above until the scripted-comparison fix was frozen. Run once, after that freeze, in agent mode: **4/4 evaluation cases passed, 2/4 orders resolved** (the clean and repair-eligible cases resolved; the texture-edge and low-resolution cases correctly escalated), 0 falsely resolved, 0 timed out. This is consistent with the pattern the 34-fixture set showed, on fixtures the system had genuinely never seen in any form - but **it is a small fresh check (n=4), not broad proof of reliability**, and is reported here as its own line rather than folded into the 34-fixture numbers above, which would misrepresent four data points as carrying the same weight as thirty. See `evals/CHANGES.md` for the exact run record; these fixtures are no longer "reserved" as of this pass.
 
+## Cloud deployment
+
+Cloud Run service configs for the API, the (IAM-gated) image service, and the worker (`infra/gcp/`), plus a GCS storage backend (`internal/storage/gcs.go`), have been deployed and verified against a real GCP project - live at [ns-0437.github.io/artwork-agent](https://ns-0437.github.io/artwork-agent/), see the README's "Live demo" section for the deployed commit and what was verified. The worker's current code is a persistent poll loop, not a task that runs to completion, so it's deployed as a single-instance Cloud Run service rather than the brief's suggested Cloud Run Job shape; that refactor remains follow-up work, not done here.
+
 ## What's prepared but not executed
 
-- **Cloud deployment.** Cloud Run service configs for the API, the (internal-only) image service, and the worker are written (`infra/gcp/`), along with a GCS storage backend (`internal/storage/gcs.go`) implementing the same content-addressed interface `LocalDisk` does. Neither has been run against a live GCP project - no cloud resources have been created, and the GCS backend has not been exercised against a real bucket. The worker's current code is a persistent poll loop, not a task that runs to completion, so it's deployed as a single-instance Cloud Run service rather than the brief's suggested Cloud Run Job shape; that refactor is documented as follow-up work, not done here.
 - **An actual process-kill test.** The crash-recovery evidence above reproduces the DB/storage state a crash leaves, by hand; it has not been validated against a real SIGKILL mid-syscall.
 
 ## Known, tracked gaps
