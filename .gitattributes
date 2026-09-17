@@ -1,0 +1,4 @@
+# Normalize line endings to LF in the repository regardless of the
+# checkout platform - every commit this session warned "LF will be
+# replaced by CRLF" on Windows without this.
+* text=auto eol=lf
