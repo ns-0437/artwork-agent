@@ -12,6 +12,8 @@ Deployed revision: commit [`ead996b`](https://github.com/ns-0437/artwork-agent/c
 
 `image-python`'s "private Python" requirement (per the brief) is enforced by IAM alone (`roles/run.invoker` granted only to the calling service's own service account, never `allUsers`/`allAuthenticatedUsers`) - not by network ingress. `ingress: internal` was tried first and reverted: Cloud Run only treats a caller as "internal" if it's attached to a Serverless VPC connector or uses Direct VPC egress, neither of which is set up here, so a sibling Cloud Run service's call left over the public internet and got rejected identically to an outside caller. `ingress: all` + IAM-only auth was the chosen tradeoff for a portfolio demo's cost/complexity budget: it avoids needing a VPC connector. That is a narrower claim than "free" - Cloud Run's own compute/request billing, and any connector's cost if one is added later, are separate from this tradeoff and weren't estimated here.
 
+**Public, unauthenticated, synthetic data only.** There's no ownership check on orders (known gap, below) - anyone with the URL can create/mutate orders. Cost exposure from that is bounded, not just documented: `store.CreateOrder` enforces a hard `MAX_DEMO_ORDERS` cap (150) once the demo deployment's env var is set, and every Cloud Run service has `maxScale` capped at 5. Don't upload anything you wouldn't want a stranger to see - order IDs are unguessable UUIDs and there's no listing query, but nothing about this deployment should be treated as private.
+
 Two things the demo intentionally doesn't do: this is a single-instance walkthrough, not a load-bearing service - don't expect it to stay up under sustained traffic; and the worker's `agent_decide` step calls a live Groq model, so repeated runs against the same synthetic test image can land on `request_repair` or `escalate` inconsistently (the same non-determinism the evaluation harness's methodology section already documents), which is expected model behavior, not a deployment fault.
 
 ## Results, in one table
@@ -65,7 +67,7 @@ The active decision-making provider is **Groq**, not Claude and not xAI's Grok -
 
 ## Known, tracked limitations
 
-- No authentication or ownership check on orders (`ownerId` is a free-text, unverified client field) - dev ports are bound to `127.0.0.1` specifically because of this.
+- No authentication or ownership check on orders (`ownerId` is a free-text, unverified client field) - dev ports are bound to `127.0.0.1` specifically because of this. The live deployment is public with no auth by design (synthetic data only), so it caps total orders (`MAX_DEMO_ORDERS`, `store.CreateOrder`) and Cloud Run `maxScale` to bound cost exposure - a usage limit, not a substitute for real ownership checks, which remain a genuine known gap.
 - Upload tickets are replayable until they expire (10 minutes) rather than enforced single-use.
 
 ## More detail

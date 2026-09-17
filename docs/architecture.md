@@ -164,5 +164,5 @@ See `docs/case_study.md` for the full narrative writeup of this project, framed 
 
 ## Known gaps (tracked, not yet fixed)
 
-- **No authentication or ownership checks.** `ownerId` on an order is a free-text field the client supplies - nothing verifies the caller actually owns the order they're mutating. Dev ports are bound to `127.0.0.1` specifically because of this gap (see CLAUDE.md point 26); this needs closing before any deployment beyond a local demo.
+- **No authentication or ownership checks.** `ownerId` on an order is a free-text field the client supplies - nothing verifies the caller actually owns the order they're mutating. Dev ports are bound to `127.0.0.1` specifically because of this gap (see CLAUDE.md point 26). The live deployment accepted this rather than closing it first - bounding cost exposure instead (`MAX_DEMO_ORDERS`, Cloud Run `maxScale`; see `infra/gcp/README.md`) for a public, synthetic-data-only demo, which is a usage limit, not a substitute for real ownership checks.
 - **Upload tickets are single-use in intent but not enforced as such.** The HMAC token can be replayed against `/uploads/{token}` until it expires (10 minutes) - each replay creates a new `assets` row rather than being rejected as a reused ticket.

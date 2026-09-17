@@ -16,6 +16,7 @@ was checked. Everything below reflects what was actually done, not a plan.
 - **Storage**: a GCS bucket (`artwork-agent-demo-artifacts`) with a 7-day object deletion lifecycle, matching the brief's "seven-day deletion" security essential.
 - **Secrets**: `artwork-agent-database-url`, `artwork-agent-upload-signing-secret`, `artwork-agent-groq-api-key` in Secret Manager, each with `roles/secretmanager.secretAccessor` granted only to the project's default compute service account (the one api-go/worker actually run as) - not broader.
 - **Images**: built via `gcloud builds submit` and pushed to an Artifact Registry repo (`artwork-agent`, `asia-south1`). `api-go` and `worker` share one image (two binaries, selected by `command:` in each service's YAML) - `services/api-go/Dockerfile` builds both.
+- **Cost/abuse boundary**: no auth (see "Known, still-open gaps" below) means this is a public, unauthenticated write surface, so it's bounded rather than left to documentation alone - `api-go-service.yaml` sets `MAX_DEMO_ORDERS=150` (enforced in `store.CreateOrder`, returns a clear error past the cap) and every service caps `autoscaling.knative.dev/maxScale` at 5.
 
 ## Gaps found only by actually deploying (fixed here, not hidden)
 
@@ -25,9 +26,10 @@ was checked. Everything below reflects what was actually done, not a plan.
 - **`cmd/worker` had no HTTP listener at all**, but Cloud Run needs some port to consider a revision healthy - fixed with a minimal `/healthz` endpoint in `cmd/worker/main.go`.
 - **A `grep | cut | gcloud secrets create --data-file=-` pipeline left a trailing newline in the Groq secret**, which Go's `net/http` rejected as an invalid header value at request time - every agent decision silently escalated instead of erroring loudly, indistinguishable from the model genuinely choosing to escalate until server logs were read directly. Fixed at both ends: the secret was recreated without the trailing newline, and `agent.NewGroqAdapter` now trims and validates the key at construction so this class of bug can't reach an HTTP request again (see `services/api-go/internal/agent/groq_adapter_test.go`).
 - **`api-go`'s outbound calls to `image-python` needed a Cloud Run identity token** once `image-python` stopped being publicly reachable - `pyclient.go` now fetches one from the metadata server, gated on `K_SERVICE` being set so local docker-compose (no metadata server, no auth) is unaffected.
+- **`services/image-python/.dockerignore`'s bare `__pycache__/` pattern excluded nothing.** Unlike `.gitignore`, Docker only matches a bare directory pattern at the build context ROOT, not recursively - confirmed with an isolated Dockerfile reproduction outside this project entirely. Needs an explicit `**/` prefix to match nested directories; fixed and reverified with a `--no-cache` rebuild.
 
 ## Known, still-open gaps
 
 - **The worker isn't a real Cloud Run Job** - see `worker-service.yaml`'s comment.
-- **Owner/authentication is still absent** (CLAUDE.md's known gap) - `ownerId` remains a client-supplied, unverified field.
+- **Owner/authentication is still absent** (CLAUDE.md's known gap) - `ownerId` remains a client-supplied, unverified field. `MAX_DEMO_ORDERS` bounds cost exposure from that; it does not restore ownership checks or privacy - anyone with the URL can view or mutate any order.
 - **This is a single-instance portfolio demo**, not a load-bearing service - it isn't designed or expected to hold up under sustained traffic.
