@@ -541,7 +541,37 @@ def main():
         help="Run ONLY the fixtures marked reserved_for_frozen_report, as their own small, separate report - "
              "the genuinely blind final pass evals/CHANGES.md describes, not folded into the main 34-fixture set.",
     )
+    parser.add_argument(
+        "--overwrite", action="store_true",
+        help="Required to overwrite an existing eval_results_<mode>*.json - a full run writes to the same path "
+             "the eval-frozen-day5 tag's committed snapshot lives at in the working tree, so this must be opted "
+             "into, not silently done by running the harness again. (--fixture-id debug runs never need this - "
+             "they write under evals/results/debug/ instead.)",
+    )
     args = parser.parse_args()
+
+    results_dir = ROOT / "results"
+    results_dir.mkdir(exist_ok=True)
+    if args.fixture_id:
+        # A single-fixture debug run must never land on the same path a
+        # full run (or the frozen `eval-frozen-day5` tag's own recorded
+        # state) uses - it already did once, silently overwriting
+        # eval_results_agent.json until `git checkout` restored it. This
+        # subdirectory makes that impossible by construction rather than
+        # relying on remembering not to.
+        debug_dir = results_dir / "debug"
+        debug_dir.mkdir(exist_ok=True)
+        out_path = debug_dir / f"eval_results_{args.mode}_{args.fixture_id}.json"
+    else:
+        suffix = "_reserved" if args.reserved_only else ""
+        out_path = results_dir / f"eval_results_{args.mode}{suffix}.json"
+        if out_path.exists() and not args.overwrite:
+            print(f"ERROR: {out_path.relative_to(ROOT.parent)} already exists - refusing to run and overwrite it "
+                  f"without --overwrite. (The eval-frozen-day5 tag preserves the original in git history "
+                  f"regardless, but a full run silently replacing the current committed report is exactly the "
+                  f"kind of accidental overwrite this checks for - checked before running any fixtures, not "
+                  f"after, so this fails fast instead of burning API calls first.)")
+            raise SystemExit(1)
 
     manifest = json.loads((ROOT / "fixtures" / "manifest.json").read_text())
     if args.reserved_only:
@@ -565,21 +595,6 @@ def main():
         results.append(r)
         print(f"  -> {r}")
 
-    results_dir = ROOT / "results"
-    results_dir.mkdir(exist_ok=True)
-    if args.fixture_id:
-        # A single-fixture debug run must never land on the same path a
-        # full run (or the frozen `eval-frozen-day5` tag's own recorded
-        # state) uses - it already did once, silently overwriting
-        # eval_results_agent.json until `git checkout` restored it. This
-        # subdirectory makes that impossible by construction rather than
-        # relying on remembering not to.
-        debug_dir = results_dir / "debug"
-        debug_dir.mkdir(exist_ok=True)
-        out_path = debug_dir / f"eval_results_{args.mode}_{args.fixture_id}.json"
-    else:
-        suffix = "_reserved" if args.reserved_only else ""
-        out_path = results_dir / f"eval_results_{args.mode}{suffix}.json"
     out_path.write_text(json.dumps(results, indent=2))
     print(f"\nwrote {out_path.relative_to(ROOT.parent)}")
 
