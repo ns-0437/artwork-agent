@@ -74,5 +74,6 @@ The active decision-making provider is **Groq**, not Claude and not xAI's Grok -
 
 - [docs/case_study.md](docs/case_study.md) - the full project narrative and evaluation writeup.
 - [docs/architecture.md](docs/architecture.md) - day-by-day technical build log.
+- [docs/artifact-explainer.html](docs/artifact-explainer.html) - problem statement, a step-by-step request-flow diagram, tech-stack rationale, and five mechanisms explained at increasing depth (quick answer -> how it works -> edge cases and tradeoffs). Built for a diagram runtime the source file doesn't carry on its own - open it locally for the full written content, or ask for the rendered link.
 - [CLAUDE.md](CLAUDE.md) - the complete list of load-bearing constraints and the bugs each one fixed.
 - [docs/build-brief.pdf](docs/build-brief.pdf) - the six-day spec this project was built against.
